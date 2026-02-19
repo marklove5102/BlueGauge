@@ -12,7 +12,7 @@ ab_glyph = { version = "0.2.32", default-features = false, features = ["std"] } 
 anyhow = "1.0.100"
 env_logger = { version = "0.11.8", default-features = false, features = ["auto-color", "humantime"] }
 dashmap = "6.1.0"
-futures = "0.3.31"
+futures = "0.3.32"
 log = { version = "0.4.29", features = ["release_max_level_off"] }
 image = { version = "0.25.9", default-features = false, features = ["ico", "png"] }
 piet-common = "0.8.0" # 图标渲染
