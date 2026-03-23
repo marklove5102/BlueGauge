@@ -28,5 +28,7 @@ pub async fn init_bluetooth_info() -> Result<()> {
         config.device_aliases.entry(name.clone()).or_insert(name);
     }
 
+    config.save_toml();
+
     Ok(())
 }
