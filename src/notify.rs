@@ -1,4 +1,4 @@
-use crate::{config::Config, language::LOC};
+use crate::{config::CONFIG, language::LOC};
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -44,17 +44,18 @@ pub enum NotifyEvent {
 }
 
 impl NotifyEvent {
-    pub fn send(&self, config: &Config, notifyed_devices: Arc<Mutex<HashSet<u64>>>) {
-        let notify = if config.get_stay_on_screen() {
+    pub fn send(&self, notifyed_devices: Arc<Mutex<HashSet<u64>>>) {
+        let config = CONFIG.read().unwrap();
+        let notify = if config.notify_options.stay_on_screen() {
             notify_stay
         } else {
             notify_default
         };
         match self {
             NotifyEvent::LowBattery(name, battery, address) => {
-                let low_threshold = config.get_low_battery() as i32;
+                let low_threshold = config.notify_options.low_battery.value() as i32;
 
-                if !config.notify_options.low_battery.should_notify() {
+                if !config.notify_options.low_battery.notify {
                     return;
                 }
 
@@ -74,16 +75,16 @@ impl NotifyEvent {
                 //   // 处于“防抖缓冲区”，不通知也不清除，避免反复触发
                 // }
             }
-            NotifyEvent::Added(name) if config.get_added() => {
+            NotifyEvent::Added(name) if config.notify_options.added() => {
                 notify(format!("{name}: {}", LOC.new_bluetooth_device_add));
             }
-            NotifyEvent::Removed(name) if config.get_removed() => {
+            NotifyEvent::Removed(name) if config.notify_options.removed() => {
                 notify(format!("{name}: {}", LOC.old_bluetooth_device_removed));
             }
-            NotifyEvent::Reconnect(name) if config.get_reconnection() => {
+            NotifyEvent::Reconnect(name) if config.notify_options.reconnection() => {
                 notify(format!("{name}: {}", LOC.bluetooth_device_reconnected));
             }
-            NotifyEvent::Disconnect(name) if config.get_disconnection() => {
+            NotifyEvent::Disconnect(name) if config.notify_options.disconnection() => {
                 notify(format!("{name}: {}", LOC.bluetooth_device_disconnected));
             }
             _ => (),

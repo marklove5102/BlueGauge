@@ -3,12 +3,11 @@ pub mod menu;
 
 use super::tray::{
     icon::{load_app_icon, load_tray_icon},
-    menu::item::create_menu,
+    menu::{MenuGroup, item::create_menu},
 };
 use crate::{
     bluetooth::info::BluetoothInfo,
-    config::{Config, TrayIconStyle},
-    tray::menu::MenuGroup,
+    config::{CONFIG, TrayIconStyle},
 };
 
 use anyhow::{Result, anyhow};
@@ -19,36 +18,35 @@ use tray_icon::{TrayIcon, TrayIconBuilder};
 
 #[rustfmt::skip]
 pub fn create_tray(
-    config: &Config,
     bluetooth_device_map: &DashMap<u64, BluetoothInfo>,
     menu_manager: &mut MenuManager<MenuGroup>,
 ) -> Result<TrayIcon> {
-    let tray_icon_bt_address = config
+    let tray_icon_bt_address = CONFIG
+        .read()
+        .unwrap()
         .tray_options
         .tray_icon_style
-        .lock()
-        .unwrap()
         .get_address();
 
     let icon = tray_icon_bt_address
         .and_then(|address| bluetooth_device_map.get(&address))
         .map(|info| (info.battery, info.status))
         .and_then(|(battery, status)| {
-            load_tray_icon(config, battery, status)
+            load_tray_icon(battery, status)
                 .inspect_err(|e| error!("Failed to load icon - {e}"))
                 .ok()
         })
         .or_else(|| {
             // 载入图标失败时，需更新配置中的图标样式，注意要在创建菜单之前
-            *config.tray_options.tray_icon_style.lock().unwrap() = TrayIconStyle::App;
+            CONFIG.write().unwrap().tray_options.tray_icon_style = TrayIconStyle::App;
             load_app_icon().ok()
         })
         .expect("Failed to create tray's icon");
 
-    let tray_menu =  create_menu(config, bluetooth_device_map, menu_manager)
+    let tray_menu =  create_menu(bluetooth_device_map, menu_manager)
         .map_err(|e| anyhow!("Failed to create menu. - {e}"))?;
 
-    let bluetooth_tooltip_info = convert_tray_info(bluetooth_device_map, config);
+    let bluetooth_tooltip_info = convert_tray_info(bluetooth_device_map);
 
     let tray_icon = TrayIconBuilder::new()
         .with_menu_on_left_click(true)
@@ -62,13 +60,11 @@ pub fn create_tray(
 }
 
 /// 返回托盘提示及菜单内容
-pub fn convert_tray_info(
-    bluetooth_device_map: &DashMap<u64, BluetoothInfo>,
-    config: &Config,
-) -> Vec<String> {
-    let should_truncate_name = config.get_truncate_name();
-    let should_prefix_battery = config.get_prefix_battery();
-    let should_show_disconnected = config.get_show_disconnected();
+pub fn convert_tray_info(bluetooth_device_map: &DashMap<u64, BluetoothInfo>) -> Vec<String> {
+    let config = CONFIG.read().unwrap();
+    let should_truncate_name = config.tray_options.tooltip_options.truncate_name();
+    let should_prefix_battery = config.tray_options.tooltip_options.prefix_battery();
+    let should_show_disconnected = config.tray_options.tooltip_options.show_disconnected();
 
     let mut sorted_devices_info = bluetooth_device_map
         .iter()
@@ -93,9 +89,7 @@ pub fn convert_tray_info(
             let include_in_tooltip = info.status || should_show_disconnected;
             if include_in_tooltip {
                 let name = {
-                    let name = config
-                        .get_device_aliases_name(&info.name)
-                        .unwrap_or(&info.name);
+                    let name = config.device_aliases.get(&info.name).unwrap_or(&info.name);
                     truncate_with_ellipsis(should_truncate_name, name, 10)
                 };
                 let battery = info.battery;

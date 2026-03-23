@@ -1,5 +1,5 @@
 use crate::{
-    config::{ASSETS_PATH, Config, Direction, TrayIconStyle},
+    config::{ASSETS_PATH, CONFIG, Direction, TrayIconStyle},
     theme::SystemTheme,
 };
 
@@ -9,7 +9,6 @@ use std::{
 };
 
 use ab_glyph::{Font, FontVec, Glyph, GlyphId, PxScale, point};
-
 use anyhow::{Context, Result, anyhow};
 use image::Rgba;
 use piet_common::{Color, Device, ImageFormat, LineCap, RenderContext, StrokeStyle};
@@ -50,9 +49,9 @@ pub fn load_app_icon() -> Result<Icon> {
     load_icon(LOGO_DATA).map_err(|e| anyhow!("Failed to load app icon - {e}"))
 }
 
-pub fn load_tray_icon(config: &Config, battery_level: u8, bluetooth_status: bool) -> Result<Icon> {
-    let tray_icon_style = config.tray_options.tray_icon_style.lock().unwrap().clone();
-    let is_low_battery = battery_level <= config.get_low_battery();
+pub fn load_tray_icon(battery_level: u8, bluetooth_status: bool) -> Result<Icon> {
+    let tray_icon_style = CONFIG.read().unwrap().tray_options.tray_icon_style.clone();
+    let is_low_battery = battery_level <= CONFIG.read().unwrap().notify_options.low_battery.value();
 
     match tray_icon_style {
         TrayIconStyle::App => load_app_icon(),

@@ -1,66 +1,73 @@
 use super::MenuGroup;
 use crate::bluetooth::info::BluetoothInfo;
-use crate::config::{Config, Direction, TrayIconStyle};
+use crate::config::{CONFIG, Direction, TrayIconStyle};
 use crate::language::LOC;
 use crate::startup::get_startup_status;
 
-use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
 use dashmap::DashMap;
+use strum::{AsRefStr, EnumString};
 use tray_controls::{CheckMenuKind, MenuControl, MenuManager};
 use tray_icon::menu::{
     CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,
 };
 
-pub static QUIT: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("quit")); // Normal
-pub static ABOUT: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("about")); // Normal
-pub static RESTART: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("restart")); // Normal
-pub static STARTUP: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("startup")); // CheckSingle
-pub static REFRESH: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("refresh")); // Normal
-// Normal
-pub static OPEN_CONFIG: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("open_config"));
-// CheckSingle
-pub static SHOW_LOWEST_BATTERY_DEVICE: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("show_lowest_battery_device"));
-// CheckSingle
-pub static SET_ICON_CONNECT_COLOR: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("set_icon_connect_color"));
-// GroupSingle
-pub static TRAY_ICON_STYLE_APP: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("app_icon"));
-pub static TRAY_ICON_STYLE_HORIZONTAL_BATTERY: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("horizontal_battery_icon"));
-pub static TRAY_ICON_STYLE_VERTICAL_BATTERY: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("vertical_battery_icon"));
-pub static TRAY_ICON_STYLE_NUMBER: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("number_icon"));
-pub static TRAY_ICON_STYLE_RING: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("ring_icon"));
-// GroupMulti
-pub static TRAY_TOOLTIP_SHOW_DISCONNECTED: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("show_disconnected"));
-pub static TRAY_TOOLTIP_TRUNCATE_NAME: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("truncate_name"));
-pub static TRAY_TOOLTIP_PREFIX_BATTERY: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("prefix_battery"));
-// GroupSingle
-pub static LOW_BATTERY_0: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(0));
-pub static LOW_BATTERY_5: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(5));
-pub static LOW_BATTERY_10: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(10));
-pub static LOW_BATTERY_15: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(15));
-pub static LOW_BATTERY_20: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(20));
-pub static LOW_BATTERY_25: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(25));
-pub static LOW_BATTERY_30: LazyLock<MenuId> = LazyLock::new(|| MenuId::from(30));
-// GroupMulti
-pub static NOTIFY_DEVICE_CHANGE_DISCONNECTION: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("disconnection"));
-pub static NOTIFY_DEVICE_CHANGE_RECONNECTION: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("reconnection"));
-pub static NOTIFY_DEVICE_CHANGE_ADDED: LazyLock<MenuId> = LazyLock::new(|| MenuId::new("added"));
-pub static NOTIFY_DEVICE_CHANGE_REMOVED: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("removed"));
-pub static NOTIFY_DEVICE_STAY_ON_SCREEN: LazyLock<MenuId> =
-    LazyLock::new(|| MenuId::new("stay_on_screen"));
+#[derive(Debug, Clone, Eq, Hash, PartialEq, AsRefStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum MenuAction {
+    // Normal
+    Quit,
+    About,
+    Restart,
+    Refresh,
+    OpenConfig,
+    Device,
+    // CheckSingle
+    Startup,
+    // CheckSingle
+    ShowLowestBatteryDevice,
+    // CheckSingle
+    SetIconConnectColor,
+    // GroupSingle
+    TrayIconStyleApp,
+    TrayIconStyleHorizontalBattery,
+    TrayIconStyleVerticalBattery,
+    TrayIconStyleNumber,
+    TrayIconStyleRing,
+    // GroupMulti
+    TrayTooltipShowDisconnected,
+    TrayTooltipTruncateName,
+    TrayTooltipPrefixBattery,
+    // GroupSingle
+    #[strum(serialize = "0")]
+    LowBattery0,
+    #[strum(serialize = "5")]
+    LowBattery5,
+    #[strum(serialize = "10")]
+    LowBattery10,
+    #[strum(serialize = "15")]
+    LowBattery15,
+    #[strum(serialize = "20")]
+    LowBattery20,
+    #[strum(serialize = "25")]
+    LowBattery25,
+    #[strum(serialize = "30")]
+    LowBattery30,
+    // GroupMulti
+    NotifyDeviceChangeDisconnection,
+    NotifyDeviceChangeReconnection,
+    NotifyDeviceChangeAdded,
+    NotifyDeviceChangeRemoved,
+    NotifyDeviceStayOnScreen,
+}
+
+impl MenuAction {
+    pub fn id(&self) -> MenuId {
+        MenuId::new(self.as_ref())
+    }
+}
 
 struct CreateMenuItem(MenuManager<MenuGroup>);
 
@@ -74,34 +81,33 @@ impl CreateMenuItem {
     }
 
     fn quit(&mut self, text: &str) -> MenuItem {
-        let menu_item = MenuItem::with_id(QUIT.clone(), text, true, None);
+        let menu_item = MenuItem::with_id(MenuAction::Quit.id(), text, true, None);
         self.0.insert(MenuControl::MenuItem(menu_item.clone()));
         menu_item
     }
 
     fn about(&mut self, text: &str) -> MenuItem {
-        let menu_item = MenuItem::with_id(ABOUT.clone(), text, true, None);
+        let menu_item = MenuItem::with_id(MenuAction::About.id(), text, true, None);
         self.0.insert(MenuControl::MenuItem(menu_item.clone()));
         menu_item
     }
 
     fn restart(&mut self, text: &str) -> MenuItem {
-        let menu_item = MenuItem::with_id(RESTART.clone(), text, true, None);
+        let menu_item = MenuItem::with_id(MenuAction::Restart.id(), text, true, None);
         self.0.insert(MenuControl::MenuItem(menu_item.clone()));
         menu_item
     }
 
     fn open_config(&mut self, text: &str) -> MenuItem {
-        let menu_item = MenuItem::with_id(OPEN_CONFIG.clone(), text, true, None);
+        let menu_item = MenuItem::with_id(MenuAction::OpenConfig.id(), text, true, None);
         self.0.insert(MenuControl::MenuItem(menu_item.clone()));
         menu_item
     }
 
     fn startup(&mut self, text: &str) -> Result<CheckMenuItem> {
         let should_startup = get_startup_status()?;
-        let menu_id = STARTUP.clone();
         let check_menu_item =
-            CheckMenuItem::with_id(menu_id.clone(), text, true, should_startup, None);
+            CheckMenuItem::with_id(MenuAction::Startup.id(), text, true, should_startup, None);
         self.0
             .insert(MenuControl::CheckMenu(CheckMenuKind::Separate(Rc::new(
                 check_menu_item.clone(),
@@ -110,18 +116,15 @@ impl CreateMenuItem {
     }
 
     fn refresh(&mut self, text: &str) -> MenuItem {
-        let menu_item = MenuItem::with_id(REFRESH.clone(), text, true, None);
+        let menu_item = MenuItem::with_id(MenuAction::Refresh.id(), text, true, None);
         self.0.insert(MenuControl::MenuItem(menu_item.clone()));
         menu_item
     }
 
     fn bluetooth_devices(
         &mut self,
-        config: &Config,
         bluetooth_devices_info: &DashMap<u64, BluetoothInfo>,
     ) -> Vec<CheckMenuItem> {
-        let show_tray_battery_icon_bt_address = config.get_tray_battery_icon_bt_address();
-
         let mut sorted_devices_info = bluetooth_devices_info
             .iter()
             .map(|entry| entry.value().clone())
@@ -139,13 +142,15 @@ impl CreateMenuItem {
             }
         });
 
+        let config = CONFIG.read().unwrap();
+
+        let show_tray_battery_icon_bt_address = config.get_tray_battery_icon_bt_address();
+
         sorted_devices_info
             .iter()
             .map(|info| {
                 let menu_id = MenuId::from(info.address);
-                let name = config
-                    .get_device_aliases_name(&info.name)
-                    .unwrap_or(&info.name);
+                let name = config.device_aliases.get(&info.name).unwrap_or(&info.name);
                 let text = format!(
                     "{} - {name} - {}%",
                     if info.status { '♾' } else { '🚫' },
@@ -168,8 +173,8 @@ impl CreateMenuItem {
             .collect::<Vec<CheckMenuItem>>()
     }
 
-    fn tray_icon_style(&mut self, config: &Config) -> Submenu {
-        let tray_icon_style = config.tray_options.tray_icon_style.lock().unwrap().clone();
+    fn tray_icon_style(&mut self) -> Submenu {
+        let tray_icon_style = &CONFIG.read().unwrap().tray_options.tray_icon_style;
 
         let select_horizontal_battery_icon = matches!(
             tray_icon_style,
@@ -193,33 +198,37 @@ impl CreateMenuItem {
 
         [
             (
-                TRAY_ICON_STYLE_HORIZONTAL_BATTERY.clone(),
+                MenuAction::TrayIconStyleHorizontalBattery.id(),
                 LOC.horizontal_battery_icon,
                 select_horizontal_battery_icon,
             ),
             (
-                TRAY_ICON_STYLE_VERTICAL_BATTERY.clone(),
+                MenuAction::TrayIconStyleVerticalBattery.id(),
                 LOC.vertical_battery_icon,
                 select_vertical_battery_icon,
             ),
             (
-                TRAY_ICON_STYLE_NUMBER.clone(),
+                MenuAction::TrayIconStyleNumber.id(),
                 LOC.number_icon,
                 select_number_icon,
             ),
             (
-                TRAY_ICON_STYLE_RING.clone(),
+                MenuAction::TrayIconStyleRing.id(),
                 LOC.ring_icon,
                 select_ring_icon,
             ),
-            (TRAY_ICON_STYLE_APP.clone(), LOC.app_icon, select_app_icon),
+            (
+                MenuAction::TrayIconStyleApp.id(),
+                LOC.app_icon,
+                select_app_icon,
+            ),
         ]
         .into_iter()
         .for_each(|(menu_id, text, checked)| {
             let menu = CheckMenuItem::with_id(menu_id, text, true, checked, None);
             self.0.insert(MenuControl::CheckMenu(CheckMenuKind::Radio(
                 Rc::new(menu.clone()),
-                Some(Rc::new(TRAY_ICON_STYLE_NUMBER.clone())),
+                Some(Rc::new(MenuAction::TrayIconStyleNumber.id())),
                 MenuGroup::RadioTrayIconStyle,
             )));
             menus.push(menu);
@@ -232,24 +241,25 @@ impl CreateMenuItem {
             .expect("Failed to create submenu for tray icon style")
     }
 
-    fn tray_tooltip_options(&mut self, config: &Config) -> Submenu {
+    fn tray_tooltip_options(&mut self) -> Submenu {
         let mut menus = Vec::new();
+        let config = CONFIG.read().unwrap();
 
         [
             (
-                TRAY_TOOLTIP_SHOW_DISCONNECTED.clone(),
+                MenuAction::TrayTooltipShowDisconnected.id(),
                 LOC.show_disconnected,
-                config.get_show_disconnected(),
+                config.tray_options.tooltip_options.show_disconnected(),
             ),
             (
-                TRAY_TOOLTIP_TRUNCATE_NAME.clone(),
+                MenuAction::TrayTooltipTruncateName.id(),
                 LOC.truncate_name,
-                config.get_truncate_name(),
+                config.tray_options.tooltip_options.truncate_name(),
             ),
             (
-                TRAY_TOOLTIP_PREFIX_BATTERY.clone(),
+                MenuAction::TrayTooltipPrefixBattery.id(),
                 LOC.prefix_battery,
-                config.get_prefix_battery(),
+                config.tray_options.tooltip_options.prefix_battery(),
             ),
         ]
         .into_iter()
@@ -272,13 +282,13 @@ impl CreateMenuItem {
 
     fn notify_low_battery(&mut self, low_battery: u8) -> [CheckMenuItem; 7] {
         [
-            LOW_BATTERY_0.clone(),
-            LOW_BATTERY_5.clone(),
-            LOW_BATTERY_10.clone(),
-            LOW_BATTERY_15.clone(),
-            LOW_BATTERY_20.clone(),
-            LOW_BATTERY_25.clone(),
-            LOW_BATTERY_30.clone(),
+            MenuAction::LowBattery0.id(),
+            MenuAction::LowBattery5.id(),
+            MenuAction::LowBattery10.id(),
+            MenuAction::LowBattery15.id(),
+            MenuAction::LowBattery20.id(),
+            MenuAction::LowBattery25.id(),
+            MenuAction::LowBattery30.id(),
         ]
         .map(|menu_id| {
             let dafault_menu_id = MenuId::from(low_battery);
@@ -305,34 +315,35 @@ impl CreateMenuItem {
         })
     }
 
-    fn notify_device_change(&mut self, config: &Config) -> Vec<CheckMenuItem> {
+    fn notify_device_change(&mut self) -> Vec<CheckMenuItem> {
         let mut menus = Vec::new();
+        let config = CONFIG.read().unwrap();
 
         [
             (
-                NOTIFY_DEVICE_CHANGE_DISCONNECTION.clone(),
+                MenuAction::NotifyDeviceChangeDisconnection.id(),
                 LOC.disconnection,
-                config.get_disconnection(),
+                config.notify_options.disconnection(),
             ),
             (
-                NOTIFY_DEVICE_CHANGE_RECONNECTION.clone(),
+                MenuAction::NotifyDeviceChangeReconnection.id(),
                 LOC.reconnection,
-                config.get_reconnection(),
+                config.notify_options.reconnection(),
             ),
             (
-                NOTIFY_DEVICE_CHANGE_ADDED.clone(),
+                MenuAction::NotifyDeviceChangeAdded.id(),
                 LOC.added,
-                config.get_added(),
+                config.notify_options.added(),
             ),
             (
-                NOTIFY_DEVICE_CHANGE_REMOVED.clone(),
+                MenuAction::NotifyDeviceChangeRemoved.id(),
                 LOC.removed,
-                config.get_removed(),
+                config.notify_options.removed(),
             ),
             (
-                NOTIFY_DEVICE_STAY_ON_SCREEN.clone(),
+                MenuAction::NotifyDeviceStayOnScreen.id(),
                 LOC.stay_on_screen,
-                config.get_stay_on_screen(),
+                config.notify_options.stay_on_screen(),
             ),
         ]
         .into_iter()
@@ -349,30 +360,20 @@ impl CreateMenuItem {
         menus
     }
 
-    fn set_icon_connect_color(&mut self, config: &Config) -> CheckMenuItem {
-        let menu_id = SET_ICON_CONNECT_COLOR.clone();
+    fn set_icon_connect_color(&mut self) -> CheckMenuItem {
+        let menu_id = MenuAction::SetIconConnectColor.id();
         // 仅 [数字图标]  [圆环图标] [电池图标] 支持连接配色
-        let menu = if let TrayIconStyle::BatteryNumber { color_scheme, .. }
-        | TrayIconStyle::BatteryRing { color_scheme, .. }
-        | TrayIconStyle::BatteryIcon { color_scheme, .. } =
-            config.tray_options.tray_icon_style.lock().unwrap().deref()
-        {
-            CheckMenuItem::with_id(
-                menu_id.clone(),
-                LOC.set_icon_connect_color,
-                true,
-                color_scheme.is_connect_color(),
-                None,
-            )
-        } else {
-            CheckMenuItem::with_id(
-                menu_id.clone(),
-                LOC.set_icon_connect_color,
-                false,
-                false,
-                None,
-            )
+        let (enabled, checked) = match &CONFIG.read().unwrap().tray_options.tray_icon_style {
+            TrayIconStyle::BatteryNumber { color_scheme, .. }
+            | TrayIconStyle::BatteryRing { color_scheme, .. }
+            | TrayIconStyle::BatteryIcon { color_scheme, .. } => {
+                (true, color_scheme.is_connect_color())
+            }
+            _ => (false, false),
         };
+
+        let menu =
+            CheckMenuItem::with_id(menu_id, LOC.set_icon_connect_color, enabled, checked, None);
 
         self.0
             .insert(MenuControl::CheckMenu(CheckMenuKind::Separate(Rc::new(
@@ -382,13 +383,16 @@ impl CreateMenuItem {
         menu
     }
 
-    fn show_lowest_battery_device(&mut self, config: &Config) -> CheckMenuItem {
-        let menu_id = SHOW_LOWEST_BATTERY_DEVICE.clone();
+    fn show_lowest_battery_device(&mut self) -> CheckMenuItem {
         let menu = CheckMenuItem::with_id(
-            menu_id.clone(),
+            MenuAction::ShowLowestBatteryDevice.id(),
             LOC.show_lowest_battery_device,
             true,
-            config.get_show_lowest_battery_device(),
+            CONFIG
+                .read()
+                .unwrap()
+                .tray_options
+                .show_lowest_battery_device(),
             None,
         );
 
@@ -402,7 +406,6 @@ impl CreateMenuItem {
 }
 
 pub fn create_menu(
-    config: &Config,
     bluetooth_devices_info: &DashMap<u64, BluetoothInfo>,
     menu_manager: &mut MenuManager<MenuGroup>,
 ) -> Result<Menu> {
@@ -422,17 +425,17 @@ pub fn create_menu(
 
     let menu_open_config = create_menu_item.open_config(LOC.open_config);
 
-    let menu_devices = create_menu_item.bluetooth_devices(config, bluetooth_devices_info);
+    let menu_devices = create_menu_item.bluetooth_devices(bluetooth_devices_info);
     let menu_devices: Vec<&dyn IsMenuItem> = menu_devices
         .iter()
         .map(|item| item as &dyn IsMenuItem)
         .collect();
 
     let menu_tray_options = {
-        let menu_show_lowest_battery_device = create_menu_item.show_lowest_battery_device(config);
-        let menu_set_icon_connect_color = create_menu_item.set_icon_connect_color(config);
-        let menu_tray_icon_style = create_menu_item.tray_icon_style(config);
-        let menu_tray_tooltip_options = create_menu_item.tray_tooltip_options(config);
+        let menu_show_lowest_battery_device = create_menu_item.show_lowest_battery_device();
+        let menu_set_icon_connect_color = create_menu_item.set_icon_connect_color();
+        let menu_tray_icon_style = create_menu_item.tray_icon_style();
+        let menu_tray_tooltip_options = create_menu_item.tray_tooltip_options();
 
         let menu_tray_options: Vec<&dyn IsMenuItem> = vec![
             &menu_show_lowest_battery_device as &dyn IsMenuItem,
@@ -445,7 +448,8 @@ pub fn create_menu(
     };
 
     let menu_notify_options = {
-        let menu_notify_low_battery = create_menu_item.notify_low_battery(config.get_low_battery());
+        let menu_notify_low_battery = create_menu_item
+            .notify_low_battery(CONFIG.read().unwrap().notify_options.low_battery.value());
         let menu_notify_low_battery: Vec<&dyn IsMenuItem> = menu_notify_low_battery
             .iter()
             .map(|item| item as &dyn IsMenuItem)
@@ -453,7 +457,7 @@ pub fn create_menu(
         let menu_notify_low_battery =
             &Submenu::with_items(LOC.low_battery, true, &menu_notify_low_battery)?;
 
-        let menu_notify_device_change = create_menu_item.notify_device_change(config);
+        let menu_notify_device_change = create_menu_item.notify_device_change();
 
         let mut menu_notify_options: Vec<&dyn IsMenuItem> = Vec::new();
         menu_notify_options.push(menu_notify_low_battery as &dyn IsMenuItem);
