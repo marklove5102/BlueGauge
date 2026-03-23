@@ -1,5 +1,5 @@
 use super::MenuGroup;
-use crate::bluetooth::info::BluetoothInfo;
+use crate::bluetooth::BT_INFO_MAP;
 use crate::config::{CONFIG, Direction, TrayIconStyle};
 use crate::language::LOC;
 use crate::startup::get_startup_status;
@@ -7,7 +7,6 @@ use crate::startup::get_startup_status;
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
-use dashmap::DashMap;
 use strum::{AsRefStr, EnumString};
 use tray_controls::{CheckMenuKind, MenuControl, MenuManager};
 use tray_icon::menu::{
@@ -121,11 +120,8 @@ impl CreateMenuItem {
         menu_item
     }
 
-    fn bluetooth_devices(
-        &mut self,
-        bluetooth_devices_info: &DashMap<u64, BluetoothInfo>,
-    ) -> Vec<CheckMenuItem> {
-        let mut sorted_devices_info = bluetooth_devices_info
+    fn bluetooth_devices(&mut self) -> Vec<CheckMenuItem> {
+        let mut sorted_devices_info = BT_INFO_MAP
             .iter()
             .map(|entry| entry.value().clone())
             .collect::<Vec<_>>();
@@ -405,10 +401,7 @@ impl CreateMenuItem {
     }
 }
 
-pub fn create_menu(
-    bluetooth_devices_info: &DashMap<u64, BluetoothInfo>,
-    menu_manager: &mut MenuManager<MenuGroup>,
-) -> Result<Menu> {
+pub fn create_menu(menu_manager: &mut MenuManager<MenuGroup>) -> Result<Menu> {
     let menu_separator = CreateMenuItem::separator();
 
     let mut create_menu_item = CreateMenuItem::new();
@@ -425,7 +418,7 @@ pub fn create_menu(
 
     let menu_open_config = create_menu_item.open_config(LOC.open_config);
 
-    let menu_devices = create_menu_item.bluetooth_devices(bluetooth_devices_info);
+    let menu_devices = create_menu_item.bluetooth_devices();
     let menu_devices: Vec<&dyn IsMenuItem> = menu_devices
         .iter()
         .map(|item| item as &dyn IsMenuItem)

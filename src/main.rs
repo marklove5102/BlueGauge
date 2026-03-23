@@ -13,7 +13,9 @@ mod tray;
 mod util;
 
 use crate::bluetooth::{
+    BT_INFO_MAP,
     info::{BluetoothInfo, find_bluetooth_devices, get_bluetooth_devices_info},
+    init_bluetooth_info,
     watch::Watcher,
 };
 use crate::config::{CONFIG, EXE_PATH, TrayIconStyle};
@@ -23,7 +25,11 @@ use crate::theme::{SystemTheme, ThemeWatcher};
 use crate::tray::{
     convert_tray_info, create_tray,
     icon::{load_app_icon, load_tray_icon},
-    menu::{MenuGroup, about, handler::MenuHandler, item::{MenuAction, create_menu}},
+    menu::{
+        MenuGroup, about,
+        handler::MenuHandler,
+        item::{MenuAction, create_menu},
+    },
 };
 
 use std::collections::HashSet;
@@ -32,7 +38,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use dashmap::DashMap;
 use log::{error, info};
 use tray_controls::MenuManager;
 use tray_icon::{TrayIcon, menu::MenuEvent};
@@ -54,6 +59,8 @@ async fn main() -> anyhow::Result<()> {
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    init_bluetooth_info().await?;
+
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
 
     let proxy = event_loop.create_proxy();
@@ -70,10 +77,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub type BluetoothDeviceMap = Arc<DashMap</* Address */ u64, BluetoothInfo>>;
-
 struct App {
-    bluetooth_devcies_info: BluetoothDeviceMap,
     exit_threads: Arc<AtomicBool>,
     event_loop_proxy: EventLoopProxy<UserEvent>,
     /// 存储已经通知过的低电量设备（地址），避免再次通知
@@ -87,25 +91,16 @@ struct App {
 
 impl App {
     async fn new(event_loop_proxy: EventLoopProxy<UserEvent>) -> Self {
-        let (btc_devices, ble_devices) = find_bluetooth_devices()
-            .await
-            .expect("Failed to find bluetooth devices");
-
-        let bluetooth_devices_info = get_bluetooth_devices_info((&btc_devices, &ble_devices))
-            .await
-            .expect("Failed to get bluetooth devices info");
-
         let should_show_lowest_battery_device = CONFIG
             .read()
             .unwrap()
             .tray_options
             .show_lowest_battery_device;
-        // .load(Ordering::Relaxed);
 
         // 首次打开软件时，检测有无低电量及需显示最低电量设备
         {
             let mut should_update_tray_icon_style: Option<(u64, u8)> = None;
-            for entry in bluetooth_devices_info.iter() {
+            for entry in BT_INFO_MAP.iter() {
                 let info = entry.value();
                 let _ = event_loop_proxy.send_event(UserEvent::Notify(NotifyEvent::LowBattery(
                     info.name.clone(),
@@ -146,12 +141,9 @@ impl App {
 
         let mut menu_manager = MenuManager::new();
 
-        let tray =
-            create_tray(&bluetooth_devices_info, &mut menu_manager).expect("Failed to create tray");
+        let tray = create_tray(&mut menu_manager).expect("Failed to create tray");
 
         Self {
-            bluetooth_devcies_info: Arc::new(bluetooth_devices_info),
-            // config: Arc::new(config),
             event_loop_proxy,
             exit_threads: Arc::new(AtomicBool::new(false)),
             notified_devices: Arc::new(Mutex::new(HashSet::new())),
@@ -182,8 +174,7 @@ enum UserEvent {
 impl App {
     fn start_watch_devices(&mut self) {
         self.stop_watch_devices();
-        let devices_info = Arc::clone(&self.bluetooth_devcies_info);
-        let mut watch = Watcher::new(devices_info, self.event_loop_proxy.clone());
+        let mut watch = Watcher::new(self.event_loop_proxy.clone());
         watch.start();
         self.bluetooth_watcher = Some(watch);
     }
@@ -221,11 +212,9 @@ impl App {
             .unwrap()
             .tray_options
             .show_lowest_battery_device;
-        // .load(Ordering::Relaxed);
 
         if should_show_lowest_battery_device
-            && let Some(entry) = self
-                .bluetooth_devcies_info
+            && let Some(entry) = BT_INFO_MAP
                 .iter()
                 .filter(|entry| entry.status)
                 .min_by_key(|entry| entry.battery)
@@ -312,11 +301,8 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Notify(notify_event) => notify_event.send(self.notified_devices.clone()),
             UserEvent::UpdateTrayIcon => {
-                let current_devices_info = Arc::clone(&self.bluetooth_devcies_info);
-
                 self.handle_show_lowest_battery_device();
 
-                // let config = CONFIG.read().unwrap();
                 let tray_icon_bt_address = CONFIG
                     .read()
                     .unwrap()
@@ -325,7 +311,7 @@ impl ApplicationHandler<UserEvent> for App {
                     .get_address();
 
                 let icon = tray_icon_bt_address
-                    .and_then(|address| current_devices_info.get(&address))
+                    .and_then(|address| BT_INFO_MAP.get(&address))
                     .and_then(|info| {
                         load_tray_icon(info.battery, info.status)
                             .inspect_err(|e| error!("Failed to load icon - {e}"))
@@ -340,8 +326,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let _ = self.tray.lock().unwrap().set_icon(icon);
             }
             UserEvent::UpdateTrayTooltip => {
-                let current_devices_info = Arc::clone(&self.bluetooth_devcies_info);
-                let bluetooth_tooltip_info = convert_tray_info(&current_devices_info);
+                let bluetooth_tooltip_info = convert_tray_info();
                 let _ = self
                     .tray
                     .lock()
@@ -349,14 +334,12 @@ impl ApplicationHandler<UserEvent> for App {
                     .set_tooltip(Some(bluetooth_tooltip_info.join("\n")));
             }
             UserEvent::UpdateTray => {
-                let current_devices_info = Arc::clone(&self.bluetooth_devcies_info);
-
                 // 不创建 UserEvent::HandShowLowestBatteryDevice 事件，是因为 UserEVent 是非同步的，会导致菜单项未得到及时更新
                 self.handle_show_lowest_battery_device();
 
                 let tray_menu = {
                     let mut menu_manager = self.menu_manager.lock().unwrap();
-                    match create_menu(&current_devices_info, &mut menu_manager) {
+                    match create_menu(&mut menu_manager) {
                         Ok(tray_menu) => tray_menu,
                         Err(e) => {
                             notify(format!("Failed to create tray menu - {e}"));
@@ -376,25 +359,17 @@ impl ApplicationHandler<UserEvent> for App {
                     .send_event(UserEvent::UpdateTrayTooltip);
             }
             UserEvent::Refresh => {
-                let bluetooth_devices_info = futures::executor::block_on(async {
-                    let (btc_devices, ble_devices) = find_bluetooth_devices()
+                futures::executor::block_on(async {
+                    init_bluetooth_info()
                         .await
-                        .expect("Failed to find bluetooth devices");
-
-                    get_bluetooth_devices_info((&btc_devices, &ble_devices))
-                        .await
-                        .expect("Failed to get bluetooth devices info")
+                        .expect("Failed to init bt devices info")
                 });
 
-                for entry in bluetooth_devices_info.iter() {
+                for entry in BT_INFO_MAP.iter() {
                     let info = entry.value();
                     let _ = self.event_loop_proxy.send_event(UserEvent::Notify(
                         NotifyEvent::LowBattery(info.name.clone(), info.battery, info.address),
                     ));
-                }
-
-                {
-                    self.bluetooth_devcies_info = bluetooth_devices_info.into();
                 }
 
                 let _ = self.event_loop_proxy.send_event(UserEvent::UpdateTray);

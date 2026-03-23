@@ -6,19 +6,17 @@ use super::tray::{
     menu::{MenuGroup, item::create_menu},
 };
 use crate::{
-    bluetooth::info::BluetoothInfo,
+    bluetooth::BT_INFO_MAP,
     config::{CONFIG, TrayIconStyle},
 };
 
 use anyhow::{Result, anyhow};
-use dashmap::DashMap;
 use log::error;
 use tray_controls::MenuManager;
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
 #[rustfmt::skip]
 pub fn create_tray(
-    bluetooth_device_map: &DashMap<u64, BluetoothInfo>,
     menu_manager: &mut MenuManager<MenuGroup>,
 ) -> Result<TrayIcon> {
     let tray_icon_bt_address = CONFIG
@@ -29,7 +27,7 @@ pub fn create_tray(
         .get_address();
 
     let icon = tray_icon_bt_address
-        .and_then(|address| bluetooth_device_map.get(&address))
+        .and_then(|address| BT_INFO_MAP.get(&address))
         .map(|info| (info.battery, info.status))
         .and_then(|(battery, status)| {
             load_tray_icon(battery, status)
@@ -43,10 +41,10 @@ pub fn create_tray(
         })
         .expect("Failed to create tray's icon");
 
-    let tray_menu =  create_menu(bluetooth_device_map, menu_manager)
+    let tray_menu =  create_menu(menu_manager)
         .map_err(|e| anyhow!("Failed to create menu. - {e}"))?;
 
-    let bluetooth_tooltip_info = convert_tray_info(bluetooth_device_map);
+    let bluetooth_tooltip_info = convert_tray_info();
 
     let tray_icon = TrayIconBuilder::new()
         .with_menu_on_left_click(true)
@@ -60,13 +58,13 @@ pub fn create_tray(
 }
 
 /// 返回托盘提示及菜单内容
-pub fn convert_tray_info(bluetooth_device_map: &DashMap<u64, BluetoothInfo>) -> Vec<String> {
+pub fn convert_tray_info() -> Vec<String> {
     let config = CONFIG.read().unwrap();
     let should_truncate_name = config.tray_options.tooltip_options.truncate_name();
     let should_prefix_battery = config.tray_options.tooltip_options.prefix_battery();
     let should_show_disconnected = config.tray_options.tooltip_options.show_disconnected();
 
-    let mut sorted_devices_info = bluetooth_device_map
+    let mut sorted_devices_info = BT_INFO_MAP
         .iter()
         .map(|entry| entry.value().clone())
         .collect::<Vec<_>>();

@@ -1,6 +1,6 @@
+use super::{BT_INFO_MAP, info::{BluetoothInfo, BluetoothType}};
 use crate::{
-    BluetoothDeviceMap, UserEvent,
-    bluetooth::info::{BluetoothInfo, BluetoothType},
+    UserEvent,
     notify::NotifyEvent,
 };
 
@@ -8,10 +8,8 @@ use std::collections::{
     HashMap, HashSet,
     hash_map::Entry::{Occupied, Vacant},
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
@@ -152,8 +150,8 @@ async fn get_ble_battery_level(ble_device: &BluetoothLEDevice) -> Result<u8> {
         .with_context(|| "Failed to read battery byte")
 }
 
-fn get_ble_devices_address<C: FromIterator<u64>>(bluetooth_device_map: BluetoothDeviceMap) -> C {
-    bluetooth_device_map
+fn get_ble_devices_address<C: FromIterator<u64>>() -> C {
+    BT_INFO_MAP
         .iter()
         .filter_map(|entry| entry.is_ble().then_some(*entry.key()))
         .collect()
@@ -230,7 +228,6 @@ const BATTERY_STABILITY_DURATION: Duration = Duration::from_secs(15);
 const MINIMUM_UPDATE_INTERVAL: Duration = Duration::from_secs(20);
 
 pub async fn watch_ble_devices_async(
-    bluetooth_device_map: BluetoothDeviceMap,
     exit_flag: &Arc<AtomicBool>,
     restart_flag: &Arc<AtomicUsize>,
     proxy: EventLoopProxy<UserEvent>,
@@ -239,7 +236,7 @@ pub async fn watch_ble_devices_async(
 
     let original_ble_devices_address = Arc::new(Mutex::new(HashSet::new()));
 
-    let addresses_to_process: Vec<_> = get_ble_devices_address(Arc::clone(&bluetooth_device_map));
+    let addresses_to_process: Vec<_> = get_ble_devices_address();
 
     let ble_devices = futures::stream::iter(addresses_to_process)
         .filter_map(|address| {
@@ -282,12 +279,11 @@ pub async fn watch_ble_devices_async(
                     return Err(anyhow!("Channel closed while watching BLE devices"));
                 };
 
-                let devices = Arc::clone(&bluetooth_device_map);
                 let mut need_update_tray = false;
 
                 match update {
                     BluetoothLEUpdate::BatteryLevel(address, new_battery) => {
-                        let Some(mut info) = devices.get_mut(&address) else {
+                        let Some(mut info) = BT_INFO_MAP.get_mut(&address) else {
                             // 如果在主设备列表中找不到该地址，则跳过
                             continue;
                         };
@@ -365,7 +361,7 @@ pub async fn watch_ble_devices_async(
                         }
                     }
                     BluetoothLEUpdate::ConnectionStatus(address, status) => {
-                        if let Some(mut info) = devices.get_mut(&address)
+                        if let Some(mut info) = BT_INFO_MAP.get_mut(&address)
                             && info.status != status {
                                 info!("BLE [{}]: Status -> {status}", info.name);
                                 info.status = status;
@@ -380,9 +376,6 @@ pub async fn watch_ble_devices_async(
                     }
                 }
 
-                // 显性释放锁，避免后续更新托盘时发生死锁
-                drop(devices);
-
                 if need_update_tray {
                     let _ = proxy.send_event(UserEvent::UpdateTray);
                 }
@@ -396,7 +389,7 @@ pub async fn watch_ble_devices_async(
                         info!("Watch BLE restart by restart flag.");
                         local_generation = current_generation;
 
-                        let current_ble_devices_address: HashSet<_> = get_ble_devices_address(bluetooth_device_map.clone());
+                        let current_ble_devices_address: HashSet<_> = get_ble_devices_address();
 
                         let original_ble_devices_address_clone = original_ble_devices_address.lock().await.clone();
 
@@ -420,7 +413,7 @@ pub async fn watch_ble_devices_async(
                             let Ok(ble_device) = get_ble_device_from_address(added_device_address).await else {
                                 // 移除错误设备
                                 warn!("Failed to get added BLE Device from address");
-                                bluetooth_device_map.remove(&added_device_address);
+                                BT_INFO_MAP.remove(&added_device_address);
                                 continue;
                             };
 
@@ -434,7 +427,7 @@ pub async fn watch_ble_devices_async(
                                 Err(e) => {
                                     // 移除错误设备
                                     warn!("BLE [{name}]: Failed to watch added BLE Device - {e}");
-                                    bluetooth_device_map.remove(&added_device_address);
+                                    BT_INFO_MAP.remove(&added_device_address);
                                 }
                             }
                         }
