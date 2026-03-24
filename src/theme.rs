@@ -1,4 +1,4 @@
-use crate::{UserEvent, util::to_wide};
+use crate::{PROXY, UserEvent, util::to_wide};
 
 use std::sync::{
     Arc, RwLock,
@@ -21,7 +21,6 @@ use windows::{
     },
     core::PCWSTR,
 };
-use winit::event_loop::EventLoopProxy;
 
 const PERSONALIZE_REGISTRY_KEY: &str =
     r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
@@ -74,24 +73,18 @@ impl SystemTheme {
 
 pub struct ThemeWatcher {
     exit_threads: Arc<AtomicBool>,
-    proxy: EventLoopProxy<UserEvent>,
     system_theme: Arc<RwLock<SystemTheme>>,
     thread_handle: Option<std::thread::JoinHandle<()>>,
     shut_down_handle: HANDLE,
 }
 
 impl ThemeWatcher {
-    pub fn new(
-        exit_threads: Arc<AtomicBool>,
-        proxy: EventLoopProxy<UserEvent>,
-        system_theme: Arc<RwLock<SystemTheme>>,
-    ) -> Self {
+    pub fn new(exit_threads: Arc<AtomicBool>, system_theme: Arc<RwLock<SystemTheme>>) -> Self {
         let shut_down_handle =
             unsafe { CreateEventW(None, true, false, None).expect("Shutdown event create failed") };
 
         Self {
             exit_threads,
-            proxy,
             system_theme,
             thread_handle: None,
             shut_down_handle,
@@ -113,7 +106,6 @@ impl ThemeWatcher {
         let thread_handle = {
             let exit_threads = self.exit_threads.clone();
             let system_theme = self.system_theme.clone();
-            let proxy = self.proxy.clone();
 
             std::thread::spawn(move || {
                 let mut hkey = HKEY::default();
@@ -179,7 +171,11 @@ impl ThemeWatcher {
                                 let mut system_theme = system_theme.write().unwrap();
                                 *system_theme = current_system_theme;
 
-                                proxy
+                                PROXY
+                                    .lock()
+                                    .unwrap()
+                                    .clone()
+                                    .unwrap()
                                     .send_event(UserEvent::UpdateTray)
                                     .expect("Failed to send UpdateTray Event");
                             }

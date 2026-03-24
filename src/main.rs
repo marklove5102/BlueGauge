@@ -35,6 +35,7 @@ use crate::tray::{
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::process::Command;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -47,6 +48,9 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::WindowId,
 };
+
+pub static PROXY: LazyLock<Mutex<Option<EventLoopProxy<UserEvent>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -64,14 +68,15 @@ async fn main() -> anyhow::Result<()> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
 
     let proxy = event_loop.create_proxy();
+    PROXY.lock().unwrap().replace(proxy.clone());
+
     MenuEvent::set_event_handler(Some(move |event| {
         proxy
             .send_event(UserEvent::MenuEvent(event))
             .expect("Failed to send MenuEvent");
     }));
 
-    let proxy = event_loop.create_proxy();
-    let mut app = App::new(proxy).await;
+    let mut app = App::new().await;
     event_loop.run_app(&mut app)?;
 
     Ok(())
@@ -79,7 +84,6 @@ async fn main() -> anyhow::Result<()> {
 
 struct App {
     exit_threads: Arc<AtomicBool>,
-    event_loop_proxy: EventLoopProxy<UserEvent>,
     /// 存储已经通知过的低电量设备（地址），避免再次通知
     notified_devices: Arc<Mutex<HashSet</* Address */ u64>>>,
     menu_manager: Mutex<MenuManager<MenuGroup>>,
@@ -90,7 +94,7 @@ struct App {
 }
 
 impl App {
-    async fn new(event_loop_proxy: EventLoopProxy<UserEvent>) -> Self {
+    async fn new() -> Self {
         let should_show_lowest_battery_device = CONFIG
             .read()
             .unwrap()
@@ -102,11 +106,16 @@ impl App {
             let mut should_update_tray_icon_style: Option<(u64, u8)> = None;
             for entry in BT_INFO_MAP.iter() {
                 let info = entry.value();
-                let _ = event_loop_proxy.send_event(UserEvent::Notify(NotifyEvent::LowBattery(
-                    info.name.clone(),
-                    info.battery,
-                    info.address,
-                )));
+                let _ = PROXY
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap()
+                    .send_event(UserEvent::Notify(NotifyEvent::LowBattery(
+                        info.name.clone(),
+                        info.battery,
+                        info.address,
+                    )));
 
                 if info.status && should_show_lowest_battery_device {
                     match should_update_tray_icon_style {
@@ -144,7 +153,6 @@ impl App {
         let tray = create_tray(&mut menu_manager).expect("Failed to create tray");
 
         Self {
-            event_loop_proxy,
             exit_threads: Arc::new(AtomicBool::new(false)),
             notified_devices: Arc::new(Mutex::new(HashSet::new())),
             menu_manager: Mutex::new(menu_manager),
@@ -157,7 +165,7 @@ impl App {
 }
 
 #[derive(Debug)]
-enum UserEvent {
+pub enum UserEvent {
     Exit,
     MenuEvent(MenuEvent),
     Notify(NotifyEvent),
@@ -174,7 +182,7 @@ enum UserEvent {
 impl App {
     fn start_watch_devices(&mut self) {
         self.stop_watch_devices();
-        let mut watch = Watcher::new(self.event_loop_proxy.clone());
+        let mut watch = Watcher::new();
         watch.start();
         self.bluetooth_watcher = Some(watch);
     }
@@ -187,9 +195,8 @@ impl App {
 
     fn start_watch_theme(&mut self) {
         let exit_threads = Arc::clone(&self.exit_threads);
-        let proxy = self.event_loop_proxy.clone();
         let system_theme = Arc::clone(&self.system_theme);
-        let mut theme_watcher = ThemeWatcher::new(exit_threads, proxy, system_theme);
+        let mut theme_watcher = ThemeWatcher::new(exit_threads, system_theme);
         theme_watcher.start();
         self.theme_watcher = Some(theme_watcher);
     }
@@ -291,8 +298,7 @@ impl ApplicationHandler<UserEvent> for App {
                         return;
                     };
 
-                    let menu_handlers =
-                        MenuHandler::new(menu_control.clone(), self.event_loop_proxy.clone());
+                    let menu_handlers = MenuHandler::new(menu_control.clone());
 
                     if let Err(e) = menu_handlers.run() {
                         error!("Failed to handle menu event: {e}")
@@ -353,10 +359,11 @@ impl ApplicationHandler<UserEvent> for App {
                     .lock()
                     .unwrap()
                     .set_menu(Some(Box::new(tray_menu)));
-                let _ = self.event_loop_proxy.send_event(UserEvent::UpdateTrayIcon);
-                let _ = self
-                    .event_loop_proxy
-                    .send_event(UserEvent::UpdateTrayTooltip);
+
+                let proxy = PROXY.lock().unwrap().clone().unwrap();
+
+                let _ = proxy.send_event(UserEvent::UpdateTrayIcon);
+                let _ = proxy.send_event(UserEvent::UpdateTrayTooltip);
             }
             UserEvent::Refresh => {
                 futures::executor::block_on(async {
@@ -365,14 +372,18 @@ impl ApplicationHandler<UserEvent> for App {
                         .expect("Failed to init bt devices info")
                 });
 
+                let proxy = PROXY.lock().unwrap().clone().unwrap();
+
                 for entry in BT_INFO_MAP.iter() {
                     let info = entry.value();
-                    let _ = self.event_loop_proxy.send_event(UserEvent::Notify(
-                        NotifyEvent::LowBattery(info.name.clone(), info.battery, info.address),
-                    ));
+                    let _ = proxy.send_event(UserEvent::Notify(NotifyEvent::LowBattery(
+                        info.name.clone(),
+                        info.battery,
+                        info.address,
+                    )));
                 }
 
-                let _ = self.event_loop_proxy.send_event(UserEvent::UpdateTray);
+                let _ = proxy.send_event(UserEvent::UpdateTray);
             }
             UserEvent::Restart => {
                 let mut args_os: Vec<OsString> = std::env::args_os().collect();
@@ -385,7 +396,12 @@ impl ApplicationHandler<UserEvent> for App {
                     notify(format!("Failed to restart app: {e}"));
                 }
 
-                let _ = self.event_loop_proxy.send_event(UserEvent::Exit);
+                let _ = PROXY
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap()
+                    .send_event(UserEvent::Exit);
             }
             UserEvent::ShowAboutDialog => {
                 let hwnd = self.tray.lock().unwrap().window_handle();

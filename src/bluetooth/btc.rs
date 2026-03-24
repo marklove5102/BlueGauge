@@ -2,7 +2,7 @@ use super::{
     BT_INFO_MAP,
     info::{BluetoothInfo, BluetoothType},
 };
-use crate::{UserEvent, notify::NotifyEvent, util::to_wide};
+use crate::{PROXY, UserEvent, notify::NotifyEvent, util::to_wide};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -31,7 +31,6 @@ use windows_sys::{
         Properties::DEVPROP_TYPE_BYTE,
     },
 };
-use winit::event_loop::EventLoopProxy;
 
 const DEVPKEY_BLUETOOTH_BATTERY: windows_sys::Win32::Foundation::DEVPROPKEY =
     windows_sys::Win32::Foundation::DEVPROPKEY {
@@ -278,7 +277,6 @@ fn read_pnp_device_battery_from_instance_id(instance_id: String) -> Option<u8> {
 pub async fn watch_btc_devices_battery(
     exit_flag: &Arc<AtomicBool>,
     restart_flag: &Arc<AtomicUsize>,
-    proxy: EventLoopProxy<UserEvent>,
 ) -> Result<()> {
     let mut local_generation = 0;
 
@@ -290,6 +288,8 @@ pub async fn watch_btc_devices_battery(
     };
 
     let mut original_btc_devices_info = get_btc_devices_info();
+
+    let proxy = PROXY.lock().unwrap().clone().unwrap();
 
     while !exit_flag.load(Ordering::Relaxed) {
         let current_generation = restart_flag.load(Ordering::Relaxed);
@@ -368,7 +368,6 @@ fn get_btc_devices_address<C: FromIterator<u64>>() -> C {
 pub async fn watch_btc_devices_status_async(
     exit_flag: &Arc<AtomicBool>,
     restart_flag: &Arc<AtomicUsize>,
-    proxy: EventLoopProxy<UserEvent>,
 ) -> Result<()> {
     let mut local_generation = 0;
 
@@ -405,6 +404,8 @@ pub async fn watch_btc_devices_status_async(
 
         guard.insert(btc_address, watch_btc_guard);
     }
+
+    let proxy = PROXY.lock().unwrap().clone().unwrap();
 
     loop {
         tokio::select! {

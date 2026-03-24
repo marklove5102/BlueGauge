@@ -1,6 +1,6 @@
 use super::{MenuGroup, item::*};
 use crate::{
-    UserEvent,
+    PROXY, UserEvent,
     config::{CONFIG, CONFIG_PATH, TrayIconStyle},
     startup::set_startup,
 };
@@ -9,19 +9,14 @@ use std::{process::Command, str::FromStr};
 
 use anyhow::{Context, Result, anyhow};
 use tray_controls::{CheckMenuKind, MenuControl};
-use winit::event_loop::EventLoopProxy;
 
 pub struct MenuHandler<MenuGroup> {
     menu_control: MenuControl<MenuGroup>,
-    proxy: EventLoopProxy<UserEvent>,
 }
 
 impl MenuHandler<MenuGroup> {
-    pub fn new(menu_control: MenuControl<MenuGroup>, proxy: EventLoopProxy<UserEvent>) -> Self {
-        Self {
-            menu_control,
-            proxy,
-        }
+    pub fn new(menu_control: MenuControl<MenuGroup>) -> Self {
+        Self { menu_control }
     }
 
     pub fn run(&self) -> Result<()> {
@@ -45,7 +40,7 @@ impl MenuHandler<MenuGroup> {
 
         let mut config = CONFIG.write().unwrap();
 
-        let proxy = &self.proxy;
+        let proxy = PROXY.lock().unwrap().clone().unwrap();
 
         match menu_control {
             MenuControl::CheckMenu(check_menu_kind) => match check_menu_kind {

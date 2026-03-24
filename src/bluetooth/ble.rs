@@ -1,8 +1,8 @@
-use super::{BT_INFO_MAP, info::{BluetoothInfo, BluetoothType}};
-use crate::{
-    UserEvent,
-    notify::NotifyEvent,
+use super::{
+    BT_INFO_MAP,
+    info::{BluetoothInfo, BluetoothType},
 };
+use crate::{PROXY, UserEvent, notify::NotifyEvent};
 
 use std::collections::{
     HashMap, HashSet,
@@ -32,7 +32,6 @@ use windows::{
     Storage::Streams::DataReader,
     core::GUID,
 };
-use winit::event_loop::EventLoopProxy;
 
 pub async fn find_ble_devices() -> Result<Vec<BluetoothLEDevice>> {
     let ble_aqs_filter = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)?;
@@ -230,7 +229,6 @@ const MINIMUM_UPDATE_INTERVAL: Duration = Duration::from_secs(20);
 pub async fn watch_ble_devices_async(
     exit_flag: &Arc<AtomicBool>,
     restart_flag: &Arc<AtomicUsize>,
-    proxy: EventLoopProxy<UserEvent>,
 ) -> Result<()> {
     let mut local_generation = 0;
 
@@ -271,6 +269,8 @@ pub async fn watch_ble_devices_async(
 
         guard.insert(ble_address, watch_btc_guard);
     }
+
+    let proxy = PROXY.lock().unwrap().clone().unwrap();
 
     loop {
         tokio::select! {

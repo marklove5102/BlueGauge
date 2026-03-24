@@ -7,7 +7,7 @@ use super::{
     },
     info::BluetoothInfo,
 };
-use crate::{UserEvent, notify::NotifyEvent};
+use crate::{PROXY, UserEvent, notify::NotifyEvent};
 
 use std::sync::{
     Arc,
@@ -28,17 +28,15 @@ use windows::{
     Foundation::TypedEventHandler,
     core::{HSTRING, Ref},
 };
-use winit::event_loop::EventLoopProxy;
 
 type WatchHandle = JoinHandle<Result<(), anyhow::Error>>;
 
 macro_rules! spawn_watch {
-    ($func:expr, $exit_flag:expr, $restart_flag:expr, $proxy:expr) => {{
+    ($func:expr, $exit_flag:expr, $restart_flag:expr) => {{
         let exit_flag = Arc::clone(&$exit_flag);
         let restart_flag = Arc::clone(&$restart_flag);
-        let proxy = $proxy.clone();
 
-        tokio::spawn(async move { $func(&exit_flag, &restart_flag, proxy).await })
+        tokio::spawn(async move { $func(&exit_flag, &restart_flag).await })
     }};
 }
 
@@ -46,18 +44,16 @@ pub struct Watcher {
     watch_handles: Option<[WatchHandle; 4]>,
     exit_flag: Arc<AtomicBool>,
     restart_flag: Arc<AtomicUsize>,
-    proxy: EventLoopProxy<UserEvent>,
 }
 
 impl Watcher {
-    pub fn new(proxy: EventLoopProxy<UserEvent>) -> Self {
+    pub fn new() -> Self {
         let exit_flag = Arc::new(AtomicBool::new(false));
         let restart_flag = Arc::new(AtomicUsize::new(0));
         Self {
             watch_handles: None,
             exit_flag,
             restart_flag,
-            proxy,
         }
     }
 
@@ -82,10 +78,10 @@ impl Watcher {
     fn watch_loop(&self) -> [WatchHandle; 4] {
         info!("The watch bluetooth thread is started.");
 
-        let watch_btc_battery_handle = spawn_watch!(watch_btc_devices_battery, self.exit_flag, self.restart_flag, self.proxy);
-        let watch_btc_status_handle = spawn_watch!(watch_btc_devices_status_async, self.exit_flag, self.restart_flag, self.proxy);
-        let watch_ble_handle = spawn_watch!(watch_ble_devices_async, self.exit_flag, self.restart_flag, self.proxy);
-        let watch_bt_presence_handle = spawn_watch!(watch_bt_presence_async, self.exit_flag, self.restart_flag, self.proxy);
+        let watch_btc_battery_handle = spawn_watch!(watch_btc_devices_battery, self.exit_flag, self.restart_flag);
+        let watch_btc_status_handle = spawn_watch!(watch_btc_devices_status_async, self.exit_flag, self.restart_flag);
+        let watch_ble_handle = spawn_watch!(watch_ble_devices_async, self.exit_flag, self.restart_flag);
+        let watch_bt_presence_handle = spawn_watch!(watch_bt_presence_async, self.exit_flag, self.restart_flag);
 
         [
             watch_ble_handle,
@@ -258,7 +254,6 @@ fn stop_bt_presence_watch(device_watcher: &DeviceWatcher) -> Result<()> {
 async fn watch_bt_presence_async(
     exit_flag: &Arc<AtomicBool>,
     restart_flag: &Arc<AtomicUsize>,
-    proxy: EventLoopProxy<UserEvent>,
 ) -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(10);
 
@@ -306,6 +301,8 @@ async fn watch_bt_presence_async(
         stop_bt_presence_watch(&btc_watcher).unwrap();
         stop_bt_presence_watch(&ble_watcher).unwrap();
     }
+
+    let proxy = PROXY.lock().unwrap().clone().unwrap();
 
     loop {
         tokio::select! {
