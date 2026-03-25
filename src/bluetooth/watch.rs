@@ -302,7 +302,7 @@ async fn watch_bt_presence_async(
         stop_bt_presence_watch(&ble_watcher).unwrap();
     }
 
-    let proxy = PROXY.lock().unwrap().clone().unwrap();
+    let proxy = PROXY.get().unwrap();
 
     loop {
         tokio::select! {

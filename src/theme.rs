@@ -172,9 +172,7 @@ impl ThemeWatcher {
                                 *system_theme = current_system_theme;
 
                                 PROXY
-                                    .lock()
-                                    .unwrap()
-                                    .clone()
+                                    .get()
                                     .unwrap()
                                     .send_event(UserEvent::UpdateTray)
                                     .expect("Failed to send UpdateTray Event");

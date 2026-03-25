@@ -289,7 +289,7 @@ pub async fn watch_btc_devices_battery(
 
     let mut original_btc_devices_info = get_btc_devices_info();
 
-    let proxy = PROXY.lock().unwrap().clone().unwrap();
+    let proxy = PROXY.get().unwrap();
 
     while !exit_flag.load(Ordering::Relaxed) {
         let current_generation = restart_flag.load(Ordering::Relaxed);
@@ -405,7 +405,7 @@ pub async fn watch_btc_devices_status_async(
         guard.insert(btc_address, watch_btc_guard);
     }
 
-    let proxy = PROXY.lock().unwrap().clone().unwrap();
+    let proxy = PROXY.get().unwrap();
 
     loop {
         tokio::select! {

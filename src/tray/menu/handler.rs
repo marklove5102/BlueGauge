@@ -40,7 +40,7 @@ impl MenuHandler<MenuGroup> {
 
         let mut config = CONFIG.write().unwrap();
 
-        let proxy = PROXY.lock().unwrap().clone().unwrap();
+        let proxy = PROXY.get().unwrap();
 
         match menu_control {
             MenuControl::CheckMenu(check_menu_kind) => match check_menu_kind {

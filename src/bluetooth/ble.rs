@@ -270,7 +270,7 @@ pub async fn watch_ble_devices_async(
         guard.insert(ble_address, watch_btc_guard);
     }
 
-    let proxy = PROXY.lock().unwrap().clone().unwrap();
+    let proxy = PROXY.get().unwrap();
 
     loop {
         tokio::select! {

@@ -32,10 +32,9 @@ use crate::tray::{
     },
 };
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::OnceLock};
 use std::ffi::OsString;
 use std::process::Command;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -49,8 +48,7 @@ use winit::{
     window::WindowId,
 };
 
-pub static PROXY: LazyLock<Mutex<Option<EventLoopProxy<UserEvent>>>> =
-    LazyLock::new(|| Mutex::new(None));
+pub static PROXY: OnceLock<EventLoopProxy<UserEvent>> = OnceLock::new();
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -68,7 +66,8 @@ async fn main() -> anyhow::Result<()> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
 
     let proxy = event_loop.create_proxy();
-    PROXY.lock().unwrap().replace(proxy.clone());
+
+    PROXY.get_or_init(|| proxy.clone());
 
     MenuEvent::set_event_handler(Some(move |event| {
         proxy
@@ -107,9 +106,7 @@ impl App {
             for entry in BT_INFO_MAP.iter() {
                 let info = entry.value();
                 let _ = PROXY
-                    .lock()
-                    .unwrap()
-                    .clone()
+                    .get()
                     .unwrap()
                     .send_event(UserEvent::Notify(NotifyEvent::LowBattery(
                         info.name.clone(),
@@ -213,7 +210,7 @@ impl App {
         self.stop_watch_theme();
     }
 
-    fn handle_show_lowest_battery_device(&mut self) {
+    fn handle_show_lowest_battery_device(&self) {
         let should_show_lowest_battery_device = CONFIG
             .read()
             .unwrap()
@@ -360,7 +357,7 @@ impl ApplicationHandler<UserEvent> for App {
                     .unwrap()
                     .set_menu(Some(Box::new(tray_menu)));
 
-                let proxy = PROXY.lock().unwrap().clone().unwrap();
+                let proxy = PROXY.get().unwrap();
 
                 let _ = proxy.send_event(UserEvent::UpdateTrayIcon);
                 let _ = proxy.send_event(UserEvent::UpdateTrayTooltip);
@@ -372,7 +369,7 @@ impl ApplicationHandler<UserEvent> for App {
                         .expect("Failed to init bt devices info")
                 });
 
-                let proxy = PROXY.lock().unwrap().clone().unwrap();
+                let proxy = PROXY.get().unwrap();
 
                 for entry in BT_INFO_MAP.iter() {
                     let info = entry.value();
@@ -397,9 +394,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
 
                 let _ = PROXY
-                    .lock()
-                    .unwrap()
-                    .clone()
+                    .get()
                     .unwrap()
                     .send_event(UserEvent::Exit);
             }
