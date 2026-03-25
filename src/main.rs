@@ -23,8 +23,7 @@ use crate::notify::{NotifyEvent, notify};
 use crate::single_instance::SingleInstance;
 use crate::theme::{SystemTheme, ThemeWatcher};
 use crate::tray::{
-    convert_tray_info, create_tray,
-    icon::{load_app_icon, load_tray_icon},
+    convert_tray_info, create_tray, create_tray_icon,
     menu::{
         MenuGroup, about,
         handler::MenuHandler,
@@ -32,11 +31,11 @@ use crate::tray::{
     },
 };
 
-use std::{collections::HashSet, sync::OnceLock};
 use std::ffi::OsString;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::{collections::HashSet, sync::OnceLock};
 
 use log::{error, info};
 use tray_controls::MenuManager;
@@ -94,55 +93,9 @@ struct App {
 
 impl App {
     async fn new() -> Self {
-        let should_show_lowest_battery_device = CONFIG
-            .read()
-            .unwrap()
-            .tray_options
-            .show_lowest_battery_device;
-
-        // 首次打开软件时，检测有无低电量及需显示最低电量设备
         {
-            let mut should_update_tray_icon_style: Option<(u64, u8)> = None;
-            for entry in BT_INFO_MAP.iter() {
-                let info = entry.value();
-                let _ = PROXY
-                    .get()
-                    .unwrap()
-                    .send_event(UserEvent::Notify(NotifyEvent::LowBattery(
-                        info.name.clone(),
-                        info.battery,
-                        info.address,
-                    )));
-
-                if info.status && should_show_lowest_battery_device {
-                    match should_update_tray_icon_style {
-                        Some((ref mut address, ref mut lowest_battery))
-                            if info.battery < *lowest_battery =>
-                        {
-                            *address = info.address;
-                            *lowest_battery = info.battery;
-                        }
-                        None => {
-                            should_update_tray_icon_style = Some((info.address, info.battery));
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            if let Some((address, _)) = should_update_tray_icon_style {
-                info!("Show Lowest Battery Device on Startup: {}", address);
-
-                let mut config = CONFIG.write().unwrap();
-
-                if !config.tray_options.tray_icon_style.update_address(address) {
-                    // 如果默认是 APP 图标，则切换为数字图标
-                    config.tray_options.tray_icon_style =
-                        TrayIconStyle::default_number_icon(address, None);
-                };
-
-                config.save_toml();
-            }
+            Self::send_low_battery_notification();
+            Self::handle_show_lowest_battery_device();
         }
 
         let mut menu_manager = MenuManager::new();
@@ -157,6 +110,47 @@ impl App {
             theme_watcher: None,
             tray: Mutex::new(tray),
             bluetooth_watcher: None,
+        }
+    }
+
+    fn send_low_battery_notification() {
+        BT_INFO_MAP.iter().for_each(|entry| {
+            let _ = PROXY
+                .get()
+                .unwrap()
+                .send_event(UserEvent::Notify(NotifyEvent::LowBattery(
+                    entry.name.clone(),
+                    entry.battery,
+                    entry.address,
+                )));
+        });
+    }
+
+    fn handle_show_lowest_battery_device() {
+        let should_show_lowest_battery_device = CONFIG
+            .read()
+            .unwrap()
+            .tray_options
+            .show_lowest_battery_device;
+
+        if should_show_lowest_battery_device
+            && let Some(entry) = BT_INFO_MAP
+                .iter()
+                .filter(|entry| entry.status)
+                .min_by_key(|entry| entry.battery)
+        {
+            let (address, info) = entry.pair();
+            info!("Show Lowest Battery Device: {}", info.name);
+
+            let mut config = CONFIG.write().unwrap();
+
+            let tray_icon_style = &mut config.tray_options.tray_icon_style;
+
+            if !tray_icon_style.update_address(*address) {
+                *tray_icon_style = TrayIconStyle::number_icon(*address, None);
+            }
+
+            config.save_toml();
         }
     }
 }
@@ -208,33 +202,6 @@ impl App {
         self.exit_threads.store(true, Ordering::Relaxed);
         self.stop_watch_devices();
         self.stop_watch_theme();
-    }
-
-    fn handle_show_lowest_battery_device(&self) {
-        let should_show_lowest_battery_device = CONFIG
-            .read()
-            .unwrap()
-            .tray_options
-            .show_lowest_battery_device;
-
-        if should_show_lowest_battery_device
-            && let Some(entry) = BT_INFO_MAP
-                .iter()
-                .filter(|entry| entry.status)
-                .min_by_key(|entry| entry.battery)
-        {
-            let (address, info) = entry.pair();
-            info!("Show Lowest Battery Device: {}", info.name);
-
-            let mut config = CONFIG.write().unwrap();
-
-            if !config.tray_options.tray_icon_style.update_address(*address) {
-                config.tray_options.tray_icon_style =
-                    TrayIconStyle::default_number_icon(*address, None);
-            }
-
-            config.save_toml();
-        }
     }
 }
 
@@ -304,29 +271,13 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Notify(notify_event) => notify_event.send(self.notified_devices.clone()),
             UserEvent::UpdateTrayIcon => {
-                self.handle_show_lowest_battery_device();
+                Self::handle_show_lowest_battery_device();
 
-                let tray_icon_bt_address = CONFIG
-                    .read()
-                    .unwrap()
-                    .tray_options
-                    .tray_icon_style
-                    .get_address();
+                let Some(icon) = create_tray_icon() else {
+                    return;
+                };
 
-                let icon = tray_icon_bt_address
-                    .and_then(|address| BT_INFO_MAP.get(&address))
-                    .and_then(|info| {
-                        load_tray_icon(info.battery, info.status)
-                            .inspect_err(|e| error!("Failed to load icon - {e}"))
-                            .ok()
-                    })
-                    .or_else(|| {
-                        // 载入图标失败时，需更新配置中的图标样式，注意要在创建菜单之前
-                        CONFIG.write().unwrap().tray_options.tray_icon_style = TrayIconStyle::App;
-                        load_app_icon().ok()
-                    });
-
-                let _ = self.tray.lock().unwrap().set_icon(icon);
+                let _ = self.tray.lock().unwrap().set_icon(Some(icon));
             }
             UserEvent::UpdateTrayTooltip => {
                 let bluetooth_tooltip_info = convert_tray_info();
@@ -334,11 +285,11 @@ impl ApplicationHandler<UserEvent> for App {
                     .tray
                     .lock()
                     .unwrap()
-                    .set_tooltip(Some(bluetooth_tooltip_info.join("\n")));
+                    .set_tooltip(Some(bluetooth_tooltip_info));
             }
             UserEvent::UpdateTray => {
                 // 不创建 UserEvent::HandShowLowestBatteryDevice 事件，是因为 UserEVent 是非同步的，会导致菜单项未得到及时更新
-                self.handle_show_lowest_battery_device();
+                Self::handle_show_lowest_battery_device();
 
                 let tray_menu = {
                     let mut menu_manager = self.menu_manager.lock().unwrap();
@@ -369,18 +320,9 @@ impl ApplicationHandler<UserEvent> for App {
                         .expect("Failed to init bt devices info")
                 });
 
-                let proxy = PROXY.get().unwrap();
+                Self::send_low_battery_notification();
 
-                for entry in BT_INFO_MAP.iter() {
-                    let info = entry.value();
-                    let _ = proxy.send_event(UserEvent::Notify(NotifyEvent::LowBattery(
-                        info.name.clone(),
-                        info.battery,
-                        info.address,
-                    )));
-                }
-
-                let _ = proxy.send_event(UserEvent::UpdateTray);
+                let _ = PROXY.get().unwrap().send_event(UserEvent::UpdateTray);
             }
             UserEvent::Restart => {
                 let mut args_os: Vec<OsString> = std::env::args_os().collect();
@@ -393,10 +335,7 @@ impl ApplicationHandler<UserEvent> for App {
                     notify(format!("Failed to restart app: {e}"));
                 }
 
-                let _ = PROXY
-                    .get()
-                    .unwrap()
-                    .send_event(UserEvent::Exit);
+                let _ = PROXY.get().unwrap().send_event(UserEvent::Exit);
             }
             UserEvent::ShowAboutDialog => {
                 let hwnd = self.tray.lock().unwrap().window_handle();

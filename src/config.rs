@@ -89,7 +89,7 @@ impl Config {
         } else {
             match toml_config.tray_options.tray_icon_style {
                 TrayIconStyle::BatteryNumber {
-                    ref mut color_scheme,
+                    ref mut theme,
                     ref font_color,
                     ..
                 } => {
@@ -97,14 +97,14 @@ impl Config {
                         .as_ref()
                         .is_some_and(|c| Color::from_hex_str(c).is_ok())
                     {
-                        color_scheme.set_custom();
-                    } else if color_scheme.is_custom() {
+                        theme.set_custom();
+                    } else if theme.is_custom() {
                         // 如果颜色不存在或错误，且设置自定义，则更改为跟随系统主题
-                        color_scheme.set_follow_system_theme();
+                        theme.set_system();
                     }
                 }
                 TrayIconStyle::BatteryRing {
-                    ref mut color_scheme,
+                    ref mut theme,
                     ref highlight_color,
                     ref background_color,
                     ..
@@ -117,10 +117,10 @@ impl Config {
                             .is_some_and(|c| Color::from_hex_str(c).is_ok());
 
                     if has_valid_custom_color {
-                        color_scheme.set_custom();
-                    } else if color_scheme.is_custom() {
+                        theme.set_custom();
+                    } else if theme.is_custom() {
                         // 如果颜色不存在或错误，且设置自定义，则更改为跟随系统主题
-                        color_scheme.set_follow_system_theme();
+                        theme.set_system();
                     }
                 }
                 _ => (),
@@ -132,7 +132,7 @@ impl Config {
 }
 
 impl Config {
-    pub fn get_tray_battery_icon_bt_address(&self) -> Option<u64> {
+    pub fn get_tray_icon_bt_address(&self) -> Option<u64> {
         let tray_icon_style = &self.tray_options.tray_icon_style;
 
         match tray_icon_style {
@@ -152,28 +152,28 @@ pub enum Direction {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub enum ColorScheme {
-    ConnectColor, // 连接状态颜色
+pub enum TrayIconTheme {
+    Status, // 连接状态颜色
     Custom,
     #[default]
-    FollowSystemTheme, // 跟随系统主题
+    System, // 跟随系统主题
 }
 
-impl ColorScheme {
-    pub fn is_connect_color(&self) -> bool {
-        matches!(self, ColorScheme::ConnectColor)
+impl TrayIconTheme {
+    pub fn is_status(&self) -> bool {
+        matches!(self, TrayIconTheme::Status)
     }
 
     pub fn is_custom(&self) -> bool {
-        matches!(self, ColorScheme::Custom)
+        matches!(self, TrayIconTheme::Custom)
     }
 
     pub fn set_custom(&mut self) {
         *self = Self::Custom;
     }
 
-    pub fn set_follow_system_theme(&mut self) {
-        *self = Self::FollowSystemTheme;
+    pub fn set_system(&mut self) {
+        *self = Self::System;
     }
 }
 
@@ -187,23 +187,23 @@ pub enum TrayIconStyle {
         address: u64,
     },
     BatteryIcon {
-        color_scheme: ColorScheme,
         #[serde(rename = "bluetooth_address")]
         address: u64,
+        theme: TrayIconTheme,
         direction: Direction,
     },
     BatteryNumber {
-        color_scheme: ColorScheme,
         #[serde(rename = "bluetooth_address")]
         address: u64,
+        theme: TrayIconTheme,
         font_name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         font_color: Option</* Hex color */ String>,
     },
     BatteryRing {
-        color_scheme: ColorScheme,
         #[serde(rename = "bluetooth_address")]
         address: u64,
+        theme: TrayIconTheme,
         #[serde(skip_serializing_if = "Option::is_none")]
         highlight_color: Option</* Hex color */ String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -212,36 +212,36 @@ pub enum TrayIconStyle {
 }
 
 impl TrayIconStyle {
-    pub fn default_number_icon(address: u64, color_scheme: Option<ColorScheme>) -> Self {
+    pub fn number_icon(address: u64, theme: Option<TrayIconTheme>) -> Self {
         TrayIconStyle::BatteryNumber {
             address,
-            color_scheme: color_scheme.unwrap_or_default(),
+            theme: theme.unwrap_or_default(),
             font_name: "Arial".to_owned(),
             font_color: Some(String::new()),
         }
     }
 
-    pub fn default_ring_icon(address: u64, color_scheme: Option<ColorScheme>) -> Self {
+    pub fn ring_icon(address: u64, theme: Option<TrayIconTheme>) -> Self {
         TrayIconStyle::BatteryRing {
             address,
-            color_scheme: color_scheme.unwrap_or_default(),
+            theme: theme.unwrap_or_default(),
             highlight_color: Some(String::new()),
             background_color: Some(String::new()),
         }
     }
 
-    pub fn default_hor_battery_icon(address: u64, color_scheme: Option<ColorScheme>) -> Self {
+    pub fn hor_battery_icon(address: u64, theme: Option<TrayIconTheme>) -> Self {
         TrayIconStyle::BatteryIcon {
             address,
-            color_scheme: color_scheme.unwrap_or_default(),
+            theme: theme.unwrap_or_default(),
             direction: Direction::Horizontal,
         }
     }
 
-    pub fn default_vrt_battery_icon(address: u64, color_scheme: Option<ColorScheme>) -> Self {
+    pub fn vrt_battery_icon(address: u64, theme: Option<TrayIconTheme>) -> Self {
         TrayIconStyle::BatteryIcon {
             address,
-            color_scheme: color_scheme.unwrap_or_default(),
+            theme: theme.unwrap_or_default(),
             direction: Direction::Vertical,
         }
     }
@@ -269,24 +269,24 @@ impl TrayIconStyle {
         }
     }
 
-    pub fn get_color_scheme(&self) -> Option<ColorScheme> {
+    pub fn get_theme(&self) -> Option<TrayIconTheme> {
         match self {
             Self::App | Self::BatteryCustom { .. } => None,
-            Self::BatteryIcon { color_scheme, .. }
-            | Self::BatteryNumber { color_scheme, .. }
-            | Self::BatteryRing { color_scheme, .. } => Some(color_scheme.clone()),
+            Self::BatteryIcon { theme, .. }
+            | Self::BatteryNumber { theme, .. }
+            | Self::BatteryRing { theme, .. } => Some(theme.clone()),
         }
     }
 
-    pub fn set_connect_color(&mut self, should_set: bool) {
+    pub fn set_status(&mut self, should_set: bool) {
         match self {
-            Self::BatteryNumber { color_scheme, .. }
-            | Self::BatteryIcon { color_scheme, .. }
-            | Self::BatteryRing { color_scheme, .. } => {
+            Self::BatteryNumber { theme, .. }
+            | Self::BatteryIcon { theme, .. }
+            | Self::BatteryRing { theme, .. } => {
                 if should_set {
-                    *color_scheme = ColorScheme::ConnectColor;
+                    *theme = TrayIconTheme::Status;
                 } else {
-                    *color_scheme = ColorScheme::FollowSystemTheme;
+                    *theme = TrayIconTheme::System;
                 }
             }
             _ => (),
@@ -313,6 +313,7 @@ impl Default for LowBattery {
 #[derive(Debug, Default, Setters, Getters, CopyGetters, Serialize, Deserialize)]
 #[getset(set = "pub", get_copy = "pub")]
 pub struct NotifyOptions {
+    #[getset(skip)]
     pub low_battery: LowBattery,
     pub disconnection: bool,
     pub reconnection: bool,
@@ -332,8 +333,10 @@ pub struct TooltipOptions {
 #[derive(Default, Getters, CopyGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct TrayOptions {
     #[serde(rename = "tooltip")]
+    #[getset(skip)]
     pub tooltip_options: TooltipOptions,
     #[serde(rename = "icon")]
+    #[getset(skip)]
     pub tray_icon_style: TrayIconStyle,
     #[getset(set = "pub", get_copy = "pub")]
     pub show_lowest_battery_device: bool,
@@ -346,13 +349,13 @@ fn find_custom_icon() -> Result<()> {
         return Err(anyhow!("Assets directory does not exist: {assets_path:?}"));
     }
 
-    let have_custom_default_icons = (0..=100).all(|i| {
+    let have_custom_icons = (0..=100).all(|i| {
         let file_name = format!("{i}.png");
         let file_path = assets_path.join(file_name);
         file_path.is_file()
     });
 
-    if have_custom_default_icons {
+    if have_custom_icons {
         return Ok(());
     }
 

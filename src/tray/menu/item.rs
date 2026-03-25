@@ -22,7 +22,7 @@ pub enum MenuAction {
     Restart,
     Refresh,
     OpenConfig,
-    Device,
+    DeviceMenu,
     // CheckSingle
     Startup,
     // CheckSingle
@@ -140,7 +140,7 @@ impl CreateMenuItem {
 
         let config = CONFIG.read().unwrap();
 
-        let show_tray_battery_icon_bt_address = config.get_tray_battery_icon_bt_address();
+        let show_tray_battery_icon_bt_address = config.get_tray_icon_bt_address();
 
         sorted_devices_info
             .iter()
@@ -360,11 +360,9 @@ impl CreateMenuItem {
         let menu_id = MenuAction::SetIconConnectColor.id();
         // 仅 [数字图标]  [圆环图标] [电池图标] 支持连接配色
         let (enabled, checked) = match &CONFIG.read().unwrap().tray_options.tray_icon_style {
-            TrayIconStyle::BatteryNumber { color_scheme, .. }
-            | TrayIconStyle::BatteryRing { color_scheme, .. }
-            | TrayIconStyle::BatteryIcon { color_scheme, .. } => {
-                (true, color_scheme.is_connect_color())
-            }
+            TrayIconStyle::BatteryNumber { theme, .. }
+            | TrayIconStyle::BatteryRing { theme, .. }
+            | TrayIconStyle::BatteryIcon { theme, .. } => (true, theme.is_status()),
             _ => (false, false),
         };
 

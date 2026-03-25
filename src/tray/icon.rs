@@ -58,37 +58,37 @@ pub fn load_tray_icon(battery_level: u8, bluetooth_status: bool) -> Result<Icon>
         TrayIconStyle::BatteryCustom { .. } => load_custom_icon(battery_level),
         TrayIconStyle::BatteryIcon {
             address: _,
-            color_scheme,
+            theme,
             direction,
         } => {
-            let is_connect_color = color_scheme.is_connect_color().then_some(bluetooth_status);
+            let is_status = theme.is_status().then_some(bluetooth_status);
 
-            load_battery_icon(battery_level, is_low_battery, direction, is_connect_color)
+            load_battery_icon(battery_level, is_low_battery, direction, is_status)
         }
         TrayIconStyle::BatteryNumber {
             address: _,
-            color_scheme,
+            theme,
             font_name,
             font_color,
         } => {
-            let is_connect_color = color_scheme.is_connect_color().then_some(bluetooth_status);
+            let is_status = theme.is_status().then_some(bluetooth_status);
 
-            load_number_icon(battery_level, &font_name, font_color, is_connect_color)
+            load_number_icon(battery_level, &font_name, font_color, is_status)
         }
         TrayIconStyle::BatteryRing {
             address: _,
-            color_scheme,
+            theme,
             highlight_color,
             background_color,
         } => {
-            let is_connect_color = color_scheme.is_connect_color().then_some(bluetooth_status);
+            let is_status = theme.is_status().then_some(bluetooth_status);
 
             load_ring_icon(
                 battery_level,
                 is_low_battery,
                 highlight_color,
                 background_color,
-                is_connect_color,
+                is_status,
             )
         }
     }
@@ -123,10 +123,10 @@ fn load_battery_icon(
     battery_level: u8,
     is_low_battery: bool,
     direction: Direction,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<Icon> {
     let (icon_rgba, icon_width, icon_height) =
-        render_battery_icon(battery_level, is_low_battery, direction, is_connect_color)?;
+        render_battery_icon(battery_level, is_low_battery, direction, is_status)?;
     Icon::from_rgba(icon_rgba, icon_width, icon_height)
         .map_err(|e| anyhow!("Failed to get Battery Icon - {e}"))
 }
@@ -135,10 +135,10 @@ fn load_number_icon(
     battery_level: u8,
     font_name: &str,
     font_color: Option<String>,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<Icon> {
     let (icon_rgba, icon_width, icon_height) =
-        render_number_icon(battery_level, font_name, font_color, is_connect_color)?;
+        render_number_icon(battery_level, font_name, font_color, is_status)?;
     Icon::from_rgba(icon_rgba, icon_width, icon_height)
         .map_err(|e| anyhow!("Failed to get Number Icon - {e}"))
 }
@@ -148,14 +148,14 @@ pub fn load_ring_icon(
     is_low_battery: bool,
     highlight_color: Option</* Hex color */ String>,
     background_color: Option</* Hex color */ String>,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<Icon> {
     let (icon_rgba, icon_width, icon_height) = render_ring_icon(
         battery_level,
         is_low_battery,
         highlight_color,
         background_color,
-        is_connect_color,
+        is_status,
     )?;
     Icon::from_rgba(icon_rgba, icon_width, icon_height)
         .map_err(|e| anyhow!("Failed to get Icon - {e}"))
@@ -165,7 +165,7 @@ fn render_battery_icon(
     battery_level: u8,
     is_low_battery: bool,
     direction: Direction,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<(Vec<u8>, u32, u32)> {
     let font_path = BATTERY_ICON_FONT_PATH.as_str();
     let font_data = std::fs::read(font_path)?;
@@ -178,7 +178,7 @@ fn render_battery_icon(
             SystemTheme::get().get_font_color()
         };
 
-        match is_connect_color {
+        match is_status {
             Some(true) => base_color,
             Some(false) => Rgba([base_color[0], base_color[1], base_color[2], 128]),
             None => base_color,
@@ -231,7 +231,7 @@ fn render_number_icon(
     battery_level: u8,
     font_name: &str,
     font_color: Option</* Hex color */ String>,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<(Vec<u8>, u32, u32)> {
     let font_path = if font_name.trim().is_empty() {
         FONT_ARIAL_PATH.to_owned()
@@ -241,7 +241,7 @@ fn render_number_icon(
     let font_data = std::fs::read(font_path)?;
     let font = FontVec::try_from_vec(font_data).context("Failed to parse font")?;
 
-    let font_color = if let Some(should) = is_connect_color {
+    let font_color = if let Some(should) = is_status {
         if should {
             Rgba([79, 196, 120, 255])
         } else {
@@ -267,7 +267,7 @@ fn render_ring_icon(
     is_low_battery: bool,
     highlight_color: Option</* Hex color */ String>,
     background_color: Option</* Hex color */ String>,
-    is_connect_color: Option<bool>,
+    is_status: Option<bool>,
 ) -> Result<(Vec<u8>, u32, u32)> {
     let width = 64;
     let height = 64;
@@ -303,7 +303,7 @@ fn render_ring_icon(
     // 计算每个圆环应该缩短的角度（各分摊一半的间隙）
     let shorten_angle_rad = gap_angle_rad / 2.0;
     let not_custome_color = || {
-        let is_connect = is_connect_color.unwrap_or(true); // None 视为 默认连接
+        let is_connect = is_status.unwrap_or(true); // None 视为 默认连接
         if is_connect {
             match SystemTheme::get() {
                 SystemTheme::Light => Color::from_rgba32_u32(0x919191FF),
@@ -334,7 +334,7 @@ fn render_ring_icon(
     // 绘制高亮圆环（表示当前电量）
     let highlight_color = if is_low_battery {
         // 低电量颜色（不支持配置中自定义）
-        is_connect_color
+        is_status
             .and_then(|is_connect| {
                 is_connect
                     .then_some(Color::from_rgba32_u32(0xFE6666FF))
@@ -345,7 +345,7 @@ fn render_ring_icon(
         highlight_color
             .and_then(|hex| Color::from_hex_str(&hex).ok()) // 优先配置颜色
             .unwrap_or_else(|| {
-                is_connect_color
+                is_status
                     .and_then(|is_connect| {
                         is_connect
                             .then_some(Color::from_rgba32_u32(0x4CD083FF))

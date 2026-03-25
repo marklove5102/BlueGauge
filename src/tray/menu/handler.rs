@@ -31,7 +31,7 @@ impl MenuHandler<MenuGroup> {
                     menu_control,
                     MenuControl::CheckMenu(CheckMenuKind::Radio(_, _, MenuGroup::RadioDevice))
                 ) {
-                    MenuAction::Device
+                    MenuAction::DeviceMenu
                 } else {
                     return Err(anyhow!("No match check menu [{}] - {e}", id.0));
                 }
@@ -63,10 +63,7 @@ impl MenuHandler<MenuGroup> {
                                 .context("Failed to send 'Update Tray' event")
                         }
                         MenuAction::SetIconConnectColor => {
-                            config
-                                .tray_options
-                                .tray_icon_style
-                                .set_connect_color(check_state);
+                            config.tray_options.tray_icon_style.set_status(check_state);
 
                             config.save_toml();
 
@@ -147,7 +144,7 @@ impl MenuHandler<MenuGroup> {
                                     });
                                 if matches!(tray_icon_style, TrayIconStyle::App) {
                                     config.tray_options.tray_icon_style =
-                                        TrayIconStyle::default_number_icon(device_address, None);
+                                        TrayIconStyle::number_icon(device_address, None);
                                 } else {
                                     config
                                         .tray_options
@@ -206,7 +203,7 @@ impl MenuHandler<MenuGroup> {
                                 return Ok(());
                             };
 
-                            let color_scheme = tray_icon_style.get_color_scheme();
+                            let color_scheme = tray_icon_style.get_theme();
 
                             match select_menu_action {
                                 MenuAction::TrayIconStyleApp => {
@@ -218,25 +215,19 @@ impl MenuHandler<MenuGroup> {
                                 }
                                 MenuAction::TrayIconStyleHorizontalBattery => {
                                     config.tray_options.tray_icon_style =
-                                        TrayIconStyle::default_hor_battery_icon(
-                                            address,
-                                            color_scheme,
-                                        )
+                                        TrayIconStyle::hor_battery_icon(address, color_scheme)
                                 }
                                 MenuAction::TrayIconStyleVerticalBattery => {
                                     config.tray_options.tray_icon_style =
-                                        TrayIconStyle::default_vrt_battery_icon(
-                                            address,
-                                            color_scheme,
-                                        )
+                                        TrayIconStyle::vrt_battery_icon(address, color_scheme)
                                 }
                                 MenuAction::TrayIconStyleNumber => {
                                     config.tray_options.tray_icon_style =
-                                        TrayIconStyle::default_number_icon(address, color_scheme)
+                                        TrayIconStyle::number_icon(address, color_scheme)
                                 }
                                 MenuAction::TrayIconStyleRing => {
                                     config.tray_options.tray_icon_style =
-                                        TrayIconStyle::default_ring_icon(address, color_scheme)
+                                        TrayIconStyle::ring_icon(address, color_scheme)
                                 }
                                 _ => {
                                     return Err(anyhow!(

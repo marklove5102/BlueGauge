@@ -15,10 +15,7 @@ use log::error;
 use tray_controls::MenuManager;
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
-#[rustfmt::skip]
-pub fn create_tray(
-    menu_manager: &mut MenuManager<MenuGroup>,
-) -> Result<TrayIcon> {
+pub fn create_tray_icon() -> Option<tray_icon::Icon> {
     let tray_icon_bt_address = CONFIG
         .read()
         .unwrap()
@@ -26,11 +23,10 @@ pub fn create_tray(
         .tray_icon_style
         .get_address();
 
-    let icon = tray_icon_bt_address
+    tray_icon_bt_address
         .and_then(|address| BT_INFO_MAP.get(&address))
-        .map(|info| (info.battery, info.status))
-        .and_then(|(battery, status)| {
-            load_tray_icon(battery, status)
+        .and_then(|entry| {
+            load_tray_icon(entry.battery, entry.status)
                 .inspect_err(|e| error!("Failed to load icon - {e}"))
                 .ok()
         })
@@ -39,7 +35,13 @@ pub fn create_tray(
             CONFIG.write().unwrap().tray_options.tray_icon_style = TrayIconStyle::App;
             load_app_icon().ok()
         })
-        .expect("Failed to create tray's icon");
+}
+
+#[rustfmt::skip]
+pub fn create_tray(
+    menu_manager: &mut MenuManager<MenuGroup>,
+) -> Result<TrayIcon> {
+    let icon = create_tray_icon().expect("Failed to create tray's icon");
 
     let tray_menu =  create_menu(menu_manager)
         .map_err(|e| anyhow!("Failed to create menu. - {e}"))?;
@@ -49,7 +51,7 @@ pub fn create_tray(
     let tray_icon = TrayIconBuilder::new()
         .with_menu_on_left_click(true)
         .with_icon(icon)
-        .with_tooltip(bluetooth_tooltip_info.join("\n"))
+        .with_tooltip(bluetooth_tooltip_info)
         .with_menu(Box::new(tray_menu))
         .build()
         .map_err(|e| anyhow!("Failed to build tray - {e}"))?;
@@ -58,7 +60,7 @@ pub fn create_tray(
 }
 
 /// 返回托盘提示及菜单内容
-pub fn convert_tray_info() -> Vec<String> {
+pub fn convert_tray_info() -> String {
     let config = CONFIG.read().unwrap();
     let should_truncate_name = config.tray_options.tooltip_options.truncate_name();
     let should_prefix_battery = config.tray_options.tooltip_options.prefix_battery();
@@ -102,7 +104,8 @@ pub fn convert_tray_info() -> Vec<String> {
                 None
             }
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn truncate_with_ellipsis(truncate_device_name: bool, name: &str, max_chars: usize) -> String {
