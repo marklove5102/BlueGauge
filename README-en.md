@@ -133,7 +133,9 @@ Translations are AI-generated and may contain errors. Please help improve them b
 
 ## Known Issues & Suggested Solutions
 
-### 1. Currently, BlueGauge successfully retrieves battery levels from Bluetooth low-energy devices and Bluetooth Classic devices. However, we are unable to fetch the battery status from devices like AirPods and Xbox controllers, which operate on proprietary communication protocols.
+### 1. Unable to obtain 2.4GHz device battery information
+
+Different 2.4GHz devices have different communication protocols, so it is impossible to obtain battery information uniformly.
 
 **Solution:**
 

@@ -134,9 +134,9 @@ A lightweight tray tool for easily viewing the battery level of your Bluetooth d
 
 ## 已知问题与建议
 
-### 1. 无法获取某些设备电量信息
+### 1. 无法获取 2.4GHz 设备电量信息
 
-目前，BlueGauge 可检索低功耗蓝牙设备（BLE）设备和经典蓝牙（Bluetooth Classic）设备的电量，但对于像 **AirPods** 和 **Xbox 控制器** 等使用专有通信协议的设备，可能无法获取电量信息。
+不同的 2.4GHz 设备的通信协议不同，无法做到统一获取电量信息，需要针对不同设备进行不同的优化。
 
 - **解决方案：**: 欢迎有能力的开发者贡献代码或提供思路，帮助扩展对这些设备的支持。
 
