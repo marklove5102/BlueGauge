@@ -9,9 +9,10 @@ use crate::{
 use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use log::{info, warn};
+use strum::EnumIs;
 use windows::Devices::Bluetooth::{BluetoothDevice, BluetoothLEDevice};
 
-#[derive(Default, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Hash, Debug, EnumIs)]
 pub enum BluetoothType {
     Classic(/* Instance ID */ String),
     #[default]
@@ -37,23 +38,11 @@ impl BluetoothInfo {
     }
 
     pub fn is_btc(&self) -> bool {
-        matches!(
-            self,
-            BluetoothInfo {
-                r#type: BluetoothType::Classic(_),
-                ..
-            }
-        )
+        self.r#type.is_classic()
     }
 
     pub fn is_ble(&self) -> bool {
-        matches!(
-            self,
-            BluetoothInfo {
-                r#type: BluetoothType::LowEnergy,
-                ..
-            }
-        )
+        self.r#type.is_low_energy()
     }
 }
 

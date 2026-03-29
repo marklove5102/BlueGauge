@@ -7,6 +7,7 @@ use getset::{CopyGetters, Getters, Setters};
 use log::warn;
 use piet_common::Color;
 use serde::{Deserialize, Serialize};
+use strum::EnumIs;
 
 pub static ASSETS_PATH: LazyLock<PathBuf> = LazyLock::new(|| EXE_PATH.with_file_name("assets"));
 
@@ -151,7 +152,7 @@ pub enum Direction {
     Vertical,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(EnumIs, Debug, Clone, Default, Serialize, Deserialize)]
 pub enum TrayIconTheme {
     Status, // 连接状态颜色
     Custom,
@@ -160,14 +161,6 @@ pub enum TrayIconTheme {
 }
 
 impl TrayIconTheme {
-    pub fn is_status(&self) -> bool {
-        matches!(self, TrayIconTheme::Status)
-    }
-
-    pub fn is_custom(&self) -> bool {
-        matches!(self, TrayIconTheme::Custom)
-    }
-
     pub fn set_custom(&mut self) {
         *self = Self::Custom;
     }
@@ -333,10 +326,8 @@ pub struct TooltipOptions {
 #[derive(Default, Getters, CopyGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct TrayOptions {
     #[serde(rename = "tooltip")]
-    #[getset(skip)]
     pub tooltip_options: TooltipOptions,
     #[serde(rename = "icon")]
-    #[getset(skip)]
     pub tray_icon_style: TrayIconStyle,
     #[getset(set = "pub", get_copy = "pub")]
     pub show_lowest_battery_device: bool,

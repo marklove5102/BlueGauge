@@ -37,14 +37,11 @@ pub fn create_tray_icon() -> Option<tray_icon::Icon> {
         })
 }
 
-#[rustfmt::skip]
-pub fn create_tray(
-    menu_manager: &mut MenuManager<MenuGroup>,
-) -> Result<TrayIcon> {
+pub fn create_tray(menu_manager: &mut MenuManager<MenuGroup>) -> Result<TrayIcon> {
     let icon = create_tray_icon().expect("Failed to create tray's icon");
 
-    let tray_menu =  create_menu(menu_manager)
-        .map_err(|e| anyhow!("Failed to create menu. - {e}"))?;
+    let tray_menu =
+        create_menu(menu_manager).map_err(|e| anyhow!("Failed to create menu. - {e}"))?;
 
     let bluetooth_tooltip_info = convert_tray_info();
 

@@ -7,7 +7,7 @@ use super::{
     },
     info::BluetoothInfo,
 };
-use crate::{PROXY, UserEvent, notify::NotifyEvent};
+use crate::{PROXY, UserEvent, bluetooth::info::BluetoothType, notify::NotifyEvent};
 
 use std::sync::{
     Arc,
@@ -105,14 +105,14 @@ enum BluetoothPresence {
 }
 
 async fn check_presence_async(
-    is_ble: bool,
+    bt_type: BluetoothType,
     presence: BluetoothPresence,
     id: HSTRING,
     tx: Sender<(BluetoothInfo, BluetoothPresence)>,
 ) -> Result<()> {
     match presence {
         BluetoothPresence::Added => {
-            if is_ble {
+            if bt_type.is_low_energy() {
                 let ble_device = BluetoothLEDevice::FromIdAsync(&id)?.await?;
                 match process_ble_device(&ble_device).await {
                     Ok(ble_info) => {
@@ -155,12 +155,15 @@ async fn check_presence_async(
             };
         }
         BluetoothPresence::Removed => {
-            let remove_device_address = if is_ble {
-                let device = BluetoothLEDevice::FromIdAsync(&id)?.await?;
-                device.BluetoothAddress()?
-            } else {
-                let device = BluetoothDevice::FromIdAsync(&id)?.await?;
-                device.BluetoothAddress()?
+            let remove_device_address = match bt_type {
+                BluetoothType::LowEnergy => {
+                    let device = BluetoothLEDevice::FromIdAsync(&id)?.await?;
+                    device.BluetoothAddress()?
+                }
+                BluetoothType::Classic(_) => {
+                    let device = BluetoothDevice::FromIdAsync(&id)?.await?;
+                    device.BluetoothAddress()?
+                }
             };
             let remove_device_info = BluetoothInfo {
                 address: remove_device_address,
@@ -175,7 +178,7 @@ async fn check_presence_async(
 }
 
 macro_rules! create_presence_handler {
-    ($tx:ident, $current_runtime:expr, $arg_type:ty, $is_ble:expr, $presence:expr) => {{
+    ($tx:ident, $current_runtime:expr, $arg_type:ty, $bt_type:expr, $presence:expr) => {{
         let handler_tx = $tx.clone();
         TypedEventHandler::new(
             move |_watcher: Ref<DeviceWatcher>, event_info: Ref<$arg_type>| {
@@ -184,7 +187,7 @@ macro_rules! create_presence_handler {
 
                     let result = match $current_runtime.as_ref() {
                         Some(handle) => handle.block_on(async {
-                            check_presence_async($is_ble, $presence, id, handler_tx.clone()).await
+                            check_presence_async($bt_type, $presence, id, handler_tx.clone()).await
                         }),
                         None => {
                             // 没有当前 Runtime，创建临时单线程 Runtime
@@ -194,7 +197,7 @@ macro_rules! create_presence_handler {
                                 .map_err(|e| -> windows::core::Error { e.into() })?;
 
                             rt.block_on(async {
-                                check_presence_async($is_ble, $presence, id, handler_tx.clone())
+                                check_presence_async($bt_type, $presence, id, handler_tx.clone())
                                     .await
                             })
                         }
@@ -264,8 +267,8 @@ async fn watch_bt_presence_async(
     let btc_tokens = {
         let rt_added = current_runtime.clone();
         let rt_removed = current_runtime.clone();
-        let added_handler = create_presence_handler!(tx, rt_added, DeviceInformation, false, BluetoothPresence::Added);
-        let removed_handler = create_presence_handler!(tx, rt_removed, DeviceInformationUpdate, false, BluetoothPresence::Removed);
+        let added_handler = create_presence_handler!(tx, rt_added, DeviceInformation, BluetoothType::Classic(String::new()), BluetoothPresence::Added);
+        let removed_handler = create_presence_handler!(tx, rt_removed, DeviceInformationUpdate, BluetoothType::Classic(String::new()), BluetoothPresence::Removed);
         let btc_watch_added_token = btc_watcher.Added(&added_handler)?;
         let btc_watch_removed_token = btc_watcher.Removed(&removed_handler)?;
         [btc_watch_added_token, btc_watch_removed_token]
@@ -276,8 +279,8 @@ async fn watch_bt_presence_async(
     let ble_tokens = {
         let rt_added = current_runtime.clone();
         let rt_removed = current_runtime.clone();
-        let added_handler = create_presence_handler!(tx, rt_added, DeviceInformation, true, BluetoothPresence::Added);
-        let removed_handler = create_presence_handler!(tx, rt_removed, DeviceInformationUpdate, true, BluetoothPresence::Removed);
+        let added_handler = create_presence_handler!(tx, rt_added, DeviceInformation, BluetoothType::LowEnergy, BluetoothPresence::Added);
+        let removed_handler = create_presence_handler!(tx, rt_removed, DeviceInformationUpdate, BluetoothType::LowEnergy, BluetoothPresence::Removed);
         let ble_watch_added_token = ble_watcher.Added(&added_handler)?;
         let ble_watch_removed_token = ble_watcher.Removed(&removed_handler)?;
         [ble_watch_added_token, ble_watch_removed_token]
