@@ -10,7 +10,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.102"
 
-env_logger = { version = "0.11.9", default-features = false, features = ["auto-color", "humantime"] }
+env_logger = { version = "0.11.10", default-features = false, features = ["auto-color", "humantime"] }
 log = { version = "0.4.29", features = ["release_max_level_off"] }
 
 ab_glyph = { version = "0.2.32", default-features = false, features = ["std"] }  # 字体渲染
@@ -18,9 +18,9 @@ piet-common = "0.8.0" # 图标渲染
 image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
 
 serde= { version = "1.0.228", features = ["derive"] }
-toml = "1.0.3"
+toml = "1.1.0"
 
-getset = "0.1.6" # 结构体库：设置于获取
+getset = "0.1.6" # 结构体库：方便设置和获取字段方法
 strum = { version = "0.28.0", features = ["derive"] } # 枚举库：转字符、迭代器
 
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
@@ -73,7 +73,7 @@ features = [
 ]
 
 [build-dependencies]
-embed-resource = "3.0.7"
+embed-resource = "3.0.8"
 
 [profile.release]
 lto = "fat"
