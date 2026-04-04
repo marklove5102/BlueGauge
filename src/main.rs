@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 struct App {
+    bluetooth_watcher: Option<Watcher>,
     exit_threads: Arc<AtomicBool>,
     /// 存储已经通知过的低电量设备（地址），避免再次通知
     notified_devices: Arc<Mutex<HashSet</* Address */ u64>>>,
@@ -88,7 +89,8 @@ struct App {
     system_theme: Arc<RwLock<SystemTheme>>,
     theme_watcher: Option<ThemeWatcher>,
     tray: Mutex<TrayIcon>,
-    bluetooth_watcher: Option<Watcher>,
+    /// 托盘菜单更新轮询标志，避免在菜单打开时强制刷新导致体验不佳
+    tray_menu_update_polling: Arc<AtomicBool>,
 }
 
 impl App {
@@ -103,13 +105,14 @@ impl App {
         let tray = create_tray(&mut menu_manager).expect("Failed to create tray");
 
         Self {
+            bluetooth_watcher: None,
             exit_threads: Arc::new(AtomicBool::new(false)),
             notified_devices: Arc::new(Mutex::new(HashSet::new())),
             menu_manager: Mutex::new(menu_manager),
             system_theme: Arc::new(RwLock::new(SystemTheme::get())),
             theme_watcher: None,
             tray: Mutex::new(tray),
-            bluetooth_watcher: None,
+            tray_menu_update_polling: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -163,6 +166,7 @@ pub enum UserEvent {
     UnCheckAboutIconMenu,
     UnCheckDeviceMenu,
     UpdateTray,
+    UpdateTrayMenu,
     UpdateTrayIcon,
     UpdateTrayTooltip,
     Refresh,
@@ -279,17 +283,26 @@ impl ApplicationHandler<UserEvent> for App {
 
                 let _ = self.tray.lock().unwrap().set_icon(Some(icon));
             }
-            UserEvent::UpdateTrayTooltip => {
-                let bluetooth_tooltip_info = convert_tray_info();
-                let _ = self
-                    .tray
-                    .lock()
-                    .unwrap()
-                    .set_tooltip(Some(bluetooth_tooltip_info));
-            }
-            UserEvent::UpdateTray => {
-                // 不创建 UserEvent::HandShowLowestBatteryDevice 事件，是因为 UserEVent 是非同步的，会导致菜单项未得到及时更新
-                Self::handle_show_lowest_battery_device();
+            UserEvent::UpdateTrayMenu => {
+                // 如果托盘菜单正在显示，则推迟更新，避免菜单被强制关闭刷新影响体验
+                if self.tray.lock().unwrap().is_menu_showing().unwrap_or_default() {
+                    info!("Tray menu is showing, deferring update");
+
+                    if !self.tray_menu_update_polling.swap(true, Ordering::Relaxed) {
+                        let tray_menu_update_polling = self.tray_menu_update_polling.clone();
+                        std::thread::spawn(move || {
+                            let proxy = PROXY.get().unwrap();
+                            while tray_menu_update_polling.load(Ordering::Relaxed) {
+                                std::thread::sleep(std::time::Duration::from_millis(400));
+                                let _ = proxy.send_event(UserEvent::UpdateTrayMenu);
+                            }
+                        });
+                    }
+
+                    return;
+                }
+
+                self.tray_menu_update_polling.store(false, Ordering::Relaxed);
 
                 let tray_menu = {
                     let mut menu_manager = self.menu_manager.lock().unwrap();
@@ -302,15 +315,26 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                 };
 
-                // UserEvent发送的事件是异步的，如果在UpdateTrayIcon在创建菜单前，Handle显示最低电量设备可能不及时导致菜单设备项未得到及时更新
                 self.tray
                     .lock()
                     .unwrap()
                     .set_menu(Some(Box::new(tray_menu)));
+            }
+            UserEvent::UpdateTrayTooltip => {
+                let bluetooth_tooltip_info = convert_tray_info();
+                let _ = self
+                    .tray
+                    .lock()
+                    .unwrap()
+                    .set_tooltip(Some(bluetooth_tooltip_info));
+            }
+            UserEvent::UpdateTray => {
+                // 不创建 UserEvent::HandShowLowestBatteryDevice 事件，是因为 UserEVent 是非同步的，会导致菜单项未得到及时更新
+                Self::handle_show_lowest_battery_device();
 
                 let proxy = PROXY.get().unwrap();
-
                 let _ = proxy.send_event(UserEvent::UpdateTrayIcon);
+                let _ = proxy.send_event(UserEvent::UpdateTrayMenu);
                 let _ = proxy.send_event(UserEvent::UpdateTrayTooltip);
             }
             UserEvent::Refresh => {
