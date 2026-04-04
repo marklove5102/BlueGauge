@@ -40,6 +40,9 @@ use std::{collections::HashSet, sync::OnceLock};
 use log::{error, info};
 use tray_controls::MenuManager;
 use tray_icon::{TrayIcon, menu::MenuEvent};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, PM_REMOVE, PeekMessageW, TranslateMessage,
+};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -284,8 +287,16 @@ impl ApplicationHandler<UserEvent> for App {
                 let _ = self.tray.lock().unwrap().set_icon(Some(icon));
             }
             UserEvent::UpdateTrayMenu => {
+                pump_messages();
+
                 // 如果托盘菜单正在显示，则推迟更新，避免菜单被强制关闭刷新影响体验
-                if self.tray.lock().unwrap().is_menu_showing().unwrap_or_default() {
+                if self
+                    .tray
+                    .lock()
+                    .unwrap()
+                    .is_menu_showing()
+                    .unwrap_or_default()
+                {
                     info!("Tray menu is showing, deferring update");
 
                     if !self.tray_menu_update_polling.swap(true, Ordering::Relaxed) {
@@ -302,7 +313,8 @@ impl ApplicationHandler<UserEvent> for App {
                     return;
                 }
 
-                self.tray_menu_update_polling.store(false, Ordering::Relaxed);
+                self.tray_menu_update_polling
+                    .store(false, Ordering::Relaxed);
 
                 let tray_menu = {
                     let mut menu_manager = self.menu_manager.lock().unwrap();
@@ -365,6 +377,17 @@ impl ApplicationHandler<UserEvent> for App {
                 let hwnd = self.tray.lock().unwrap().window_handle();
                 about::show_about_dialog(hwnd as isize);
             }
+        }
+    }
+}
+
+/// Pump the Win32 message loop so tray icon events are dispatched.
+fn pump_messages() {
+    unsafe {
+        let mut msg = std::mem::zeroed();
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            let _ = TranslateMessage(&msg);
+            let _ = DispatchMessageW(&msg);
         }
     }
 }
