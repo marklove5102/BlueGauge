@@ -383,16 +383,18 @@ impl ApplicationHandler<UserEvent> for App {
 
 /// Pump the Win32 message loop so tray icon events are dispatched.
 fn pump_messages() {
+    // 防止无限 re-entry
     let mut count = 0;
+    let start = std::time::Instant::now();
     unsafe {
         let mut msg = std::mem::zeroed();
-        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-            let _ = TranslateMessage(&msg);
-            let _ = DispatchMessageW(&msg);
-            count += 1;
-            if count > 10 {
-                break; // 防止无限 re-entry
+        while count < 10 && PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            if msg.message != 0 {
+                let _ = TranslateMessage(&msg);
+                let _ = DispatchMessageW(&msg);
             }
+            count += 1;
+            if start.elapsed().as_millis() > 10 { break; }
         }
     }
 }
